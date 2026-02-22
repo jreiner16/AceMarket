@@ -1,0 +1,229 @@
+.splash {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-dark);
+  padding: 24px;
+}
+
+.splash-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: none;
+}
+
+.splash-card.splash-landing {
+  max-width: 440px;
+}
+
+.splash-card.splash-auth {
+  width: 520px;
+  max-width: 90vw;
+  padding: 24px 48px;
+}
+
+.splash-back {
+  display: inline-block;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px;
+  margin-bottom: 16px;
+  font-family: inherit;
+  box-shadow: none;
+}
+
+.splash-back:hover {
+  background: var(--btn-bg-hover);
+}
+
+/* Landing */
+.splash-hero {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.splash-hero-logo {
+  width: 56px;
+  height: 56px;
+  max-width: 56px;
+  max-height: 56px;
+  margin-bottom: 16px;
+  object-fit: contain;
+}
+
+.splash-hero h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.splash-hero-tagline {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.splash-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.splash-features-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.splash-feature-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.splash-feature-list li {
+  margin-bottom: 6px;
+}
+
+.splash-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.splash-btn {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.splash-btn:focus {
+  outline: 1px dotted #000;
+  outline-offset: 1px;
+}
+
+.splash-btn-primary {
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 1px solid var(--btn-border);
+}
+
+.splash-btn-primary:hover {
+  background: var(--btn-bg-hover);
+}
+
+.splash-btn-secondary {
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--text);
+}
+
+.splash-btn-secondary:hover {
+  background: var(--btn-bg-hover);
+}
+
+/* Auth form */
+.splash-auth .splash-logo {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.splash-auth .splash-logo img {
+  width: 36px;
+  height: 36px;
+  max-width: 36px;
+  max-height: 36px;
+  margin-bottom: 6px;
+  object-fit: contain;
+}
+
+.splash-auth .splash-logo h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.splash-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.splash-tabs button {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.splash-tabs button:focus {
+  outline: 1px dotted #000;
+  outline-offset: 1px;
+}
+
+.splash-tabs button:hover {
+  color: var(--text);
+}
+
+.splash-tabs button.active {
+  background: var(--bg-panel);
+  color: var(--text);
+  border-bottom-color: var(--bg-panel);
+  margin-bottom: -1px;
+}
+
+.splash-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.splash-form input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.splash-form button[type="submit"] {
+  padding: 8px 12px;
+  font-size: 14px;
+  margin-top: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.splash-form button[type="submit"]:focus {
+  outline: 1px dotted #000;
+  outline-offset: 1px;
+}
+
+.splash-error {
+  font-size: 12px;
+  color: var(--accent-red);
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Black background -->
+  <rect width="24" height="24" fill="#000"/>
+  <g transform="translate(12,12) scale(1.2) translate(-12,-12)">
+    <!-- Candle 1: green -->
+    <line x1="7" y1="19" x2="7" y2="6" stroke="#22c55e" stroke-width="0.8"/>
+    <rect x="5.5" y="10" width="3" height="3" fill="#22c55e"/>
+    <!-- Candle 2: red -->
+    <line x1="12" y1="19" x2="12" y2="6" stroke="#ef4444" stroke-width="0.8"/>
+    <rect x="10.5" y="10" width="3" height="7" fill="#ef4444"/>
+    <!-- Candle 3: green (tallest) -->
+    <line x1="17" y1="19" x2="17" y2="6" stroke="#22c55e" stroke-width="0.8"/>
+    <rect x="15.5" y="7.5" width="3" height="9.5" fill="#22c55e"/>
+    <!-- Dotted green line (tight dots) at top of rightmost candle body - rendered on top -->
+    <line x1="2" y1="7.5" x2="22" y2="7.5" stroke="#22c55e" stroke-width="0.15" stroke-dasharray="0.35 0.5"/>
+  </g>
+</svg>
