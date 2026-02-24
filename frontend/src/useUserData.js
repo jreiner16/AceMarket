@@ -1,69 +1,33 @@
-// UseUserData -- sync user data (eg watchlist, settings) between browser and backend
+// UseUserData -- sync watchlist with backend (persisted per user)
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { uploadFile, downloadFileAsText } from './storageUtils'
+import { apiGet, apiPut } from './apiClient'
 
 const DEFAULT_WATCHLIST = ['AAPL', 'MSFT', 'GOOGL', 'TSLA']
-const STORAGE_PATH = (uid) => `users/${uid}/data.json`
+const SAVE_DEBOUNCE_MS = 500
 const LOCAL_KEY = (uid) => `acemarket_watchlist_${uid}`
-const SAVE_DEBOUNCE_MS = 1500
 
 function loadFromLocal(uid) {
   try {
     const raw = localStorage.getItem(LOCAL_KEY(uid))
     if (raw) {
       const data = JSON.parse(raw)
-      if (Array.isArray(data.watchlist) && data.watchlist.length > 0) {
-        return data.watchlist
-      }
+      if (Array.isArray(data.watchlist) && data.watchlist.length > 0) return data.watchlist
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   return null
 }
 
-function saveToLocal(uid, data) {
+function saveToLocal(uid, wl) {
   try {
-    localStorage.setItem(LOCAL_KEY(uid), JSON.stringify(data))
-  } catch {
-    // ignore
-  }
+    localStorage.setItem(LOCAL_KEY(uid), JSON.stringify({ watchlist: wl }))
+  } catch {}
 }
 
 export function useUserData(user) {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST)
   const [loading, setLoading] = useState(true)
   const saveTimeoutRef = useRef(null)
-
-  const load = useCallback(async (uid) => {
-    try {
-      const text = await downloadFileAsText(STORAGE_PATH(uid))
-      const data = JSON.parse(text)
-      if (Array.isArray(data.watchlist) && data.watchlist.length > 0) {
-        setWatchlist(data.watchlist)
-        saveToLocal(uid, { watchlist: data.watchlist })
-        setLoading(false)
-        return
-      }
-    } catch {
-      // Firebase failed - try localStorage
-    }
-    const local = loadFromLocal(uid)
-    if (local) {
-      setWatchlist(local)
-    }
-    setLoading(false)
-  }, [])
-
-  const save = useCallback(async (uid, data) => {
-    saveToLocal(uid, data)
-    try {
-      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
-      await uploadFile(STORAGE_PATH(uid), blob)
-    } catch (err) {
-      console.warn('Watchlist Firebase save failed, using local storage:', err?.message || err)
-    }
-  }, [])
+  const pendingRef = useRef(null)
 
   useEffect(() => {
     if (!user) {
@@ -72,32 +36,74 @@ export function useUserData(user) {
       return
     }
     setLoading(true)
-    load(user.uid)
-  }, [user?.uid, load])
+    const uid = user.uid
+    const local = loadFromLocal(uid)
+    apiGet('/watchlist')
+      .then((data) => {
+        const wl = data?.watchlist
+        if (Array.isArray(wl) && wl.length > 0) {
+          saveToLocal(uid, wl)
+          return wl
+        }
+        return null
+      })
+      .catch(() => null)
+      .then((fromApi) => {
+        if (fromApi && fromApi.length > 0) {
+          setWatchlist(fromApi)
+        } else if (local && local.length > 0) {
+          setWatchlist(local)
+        }
+        setLoading(false)
+      })
+  }, [user?.uid])
+
+  const saveWatchlist = useCallback((wl) => {
+    if (!user) return
+    apiPut('/watchlist', { watchlist: wl }).catch(() => {})
+  }, [user])
 
   const setWatchlistAndSave = useCallback(
     (updater) => {
       setWatchlist((prev) => {
         const next = typeof updater === 'function' ? updater(prev) : updater
         if (user) {
-          saveToLocal(user.uid, { watchlist: next })
+          saveToLocal(user.uid, next)
+          pendingRef.current = next
           if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
           saveTimeoutRef.current = setTimeout(() => {
-            save(user.uid, { watchlist: next }).catch(() => { })
+            if (pendingRef.current) {
+              saveWatchlist(pendingRef.current)
+              pendingRef.current = null
+            }
             saveTimeoutRef.current = null
           }, SAVE_DEBOUNCE_MS)
         }
         return next
       })
     },
-    [user, save]
+    [user, saveWatchlist]
   )
 
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+  const flushPending = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+      saveTimeoutRef.current = null
     }
-  }, [])
+    if (pendingRef.current && user) {
+      saveWatchlist(pendingRef.current)
+      pendingRef.current = null
+    }
+  }, [user, saveWatchlist])
+
+  useEffect(() => {
+    const onBeforeUnload = () => flushPending()
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      flushPending()
+    }
+  }, [flushPending])
 
   return {
     watchlist,

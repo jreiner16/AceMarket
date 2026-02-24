@@ -265,6 +265,10 @@ class SettingsUpdate(BaseModel):
     block_lookahead: Optional[bool] = None
 
 
+class WatchlistUpdate(BaseModel):
+    watchlist: list[str]
+
+
 class StrategyCreate(BaseModel):
     name: str
     code: str
@@ -305,18 +309,15 @@ def get_stock_data(
     user_id: str = Depends(verify_token),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    limit: int = Query(750, ge=1, le=5000),
+    limit: int = Query(5000, ge=1, le=10000),
 ) -> dict:
-    """Get OHLC data for charting."""
-    stock = get_stock(symbol)
+    """Get OHLC data for charting. Fetches fresh data (bypasses cache) for full history."""
+    symbol = _validate_symbol(symbol)
+    stock = Stock(symbol, start_date=start_date, end_date=end_date)
     df = stock.df
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for {symbol}")
 
-    if start_date is not None:
-        df = df[pd.to_datetime(start_date):]
-    if end_date is not None:
-        df = df[:pd.to_datetime(end_date)]
     df = df.tail(limit)
 
     times = [idx.isoformat()[:10] for idx in df.index]
@@ -339,6 +340,23 @@ def get_stock_price(symbol: str, user_id: str = Depends(verify_token)) -> dict:
     """Get current (latest) price."""
     stock = get_stock(symbol)
     return {"symbol": symbol, "price": float(stock.price())}
+
+
+@app.get("/api/v1/watchlist")
+def get_watchlist(user_id: str = Depends(verify_token)) -> dict:
+    """Get user's watchlist symbols."""
+    settings = db.get_settings(user_id)
+    return {"watchlist": settings.get("watchlist", ["AAPL", "MSFT", "GOOGL", "TSLA"])}
+
+
+@app.put("/api/v1/watchlist")
+def update_watchlist(req: WatchlistUpdate, user_id: str = Depends(verify_token)) -> dict:
+    """Save user's watchlist."""
+    wl = [str(s).upper().strip() for s in (req.watchlist or []) if s][:30]
+    settings = db.get_settings(user_id)
+    settings["watchlist"] = wl
+    db.save_settings(user_id, settings)
+    return {"watchlist": wl}
 
 
 @app.get("/api/v1/watchlist/quotes")

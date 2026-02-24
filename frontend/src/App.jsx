@@ -38,6 +38,9 @@ function App() {
   const [strategyMaximized, setStrategyMaximized] = useState(false)
   const [consoleErrorCount, setConsoleErrorCount] = useState(0)
   const [chartDateRange, setChartDateRange] = useState(null) // { startDate, endDate } | null
+  const [chartShowSma, setChartShowSma] = useState(false)
+  const [chartShowEma, setChartShowEma] = useState(false)
+  const [chartShowRsi, setChartShowRsi] = useState(false)
 
   useEffect(() => {
     return subscribe((entries) => {
@@ -141,17 +144,34 @@ function App() {
                         <button type="button" className="chart-clear-frame" onClick={() => setChartDateRange(null)} title="Clear date range">×</button>
                       </span>
                     )}
+                    <div className="chart-indicators">
+                      <label className="chart-indicator-check">
+                        <input type="checkbox" checked={chartShowSma} onChange={(e) => setChartShowSma(e.target.checked)} />
+                        <span>SMA</span>
+                      </label>
+                      <label className="chart-indicator-check">
+                        <input type="checkbox" checked={chartShowEma} onChange={(e) => setChartShowEma(e.target.checked)} />
+                        <span>EMA</span>
+                      </label>
+                      <label className="chart-indicator-check">
+                        <input type="checkbox" checked={chartShowRsi} onChange={(e) => setChartShowRsi(e.target.checked)} />
+                        <span>RSI</span>
+                      </label>
+                    </div>
                   </>
                 )}
               </div>
               <div className="chart-container">
                 {selectedSymbol ? (
                   <StockChart
-                    key={`${selectedSymbol}-${chartDateRange?.startDate ?? ''}-${chartDateRange?.endDate ?? ''}`}
+                    key={`${selectedSymbol}-${chartDateRange?.startDate ?? ''}-${chartDateRange?.endDate ?? ''}-${chartShowSma}-${chartShowEma}-${chartShowRsi}`}
                     symbol={selectedSymbol}
                     startDate={chartDateRange?.startDate}
                     endDate={chartDateRange?.endDate}
                     onPriceUpdate={setPrice}
+                    showSma={chartShowSma}
+                    showEma={chartShowEma}
+                    showRsi={chartShowRsi}
                   />
                 ) : (
                   <div className="empty-chart">Search and select a stock to view the chart</div>

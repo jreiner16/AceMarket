@@ -3,7 +3,25 @@ import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import { apiFetch } from './apiClient'
 
-export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
+const LOAD_MORE_THRESHOLD = 50
+const LOAD_MORE_CHUNK = 500
+
+function parseDate(str) {
+  if (typeof str === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  return null
+}
+
+function dateBefore(dateStr) {
+  const d = parseDate(dateStr)
+  if (!d) return null
+  d.setDate(d.getDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+export function StockChart({ symbol, startDate, endDate, onPriceUpdate, showSma, showEma, showRsi }) {
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
   const [loading, setLoading] = useState(true)
@@ -69,6 +87,79 @@ export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
     })
     resizeObserver.observe(container)
 
+    const unsubRef = { current: null }
+    const stateRef = {
+      loadingMore: false,
+      hasMoreHistory: true,
+      candleData: [],
+      smaData: [],
+      emaData: [],
+      rsiData: [],
+    }
+
+    const applyData = (candleSeries, smaSeries, emaSeries, rsiSeries, candleData, smaData, emaData, rsiData) => {
+      stateRef.candleData = candleData
+      stateRef.smaData = smaData
+      stateRef.emaData = emaData
+      stateRef.rsiData = rsiData
+      candleSeries.setData(candleData)
+      if (smaSeries && smaData?.length) smaSeries.setData(smaData)
+      if (emaSeries && emaData?.length) emaSeries.setData(emaData)
+      if (rsiSeries && rsiData?.length) rsiSeries.setData(rsiData)
+    }
+
+    const loadMoreHistory = async (candleSeries, smaSeries, emaSeries, rsiSeries) => {
+      if (!active || stateRef.loadingMore || !stateRef.hasMoreHistory) return
+      const { candleData, smaData, emaData, rsiData } = stateRef
+      const oldest = candleData[0]?.time
+      if (!oldest) return
+      const end = dateBefore(oldest)
+      if (!end) return
+
+      stateRef.loadingMore = true
+      try {
+        const params = new URLSearchParams()
+        params.set('end_date', end)
+        params.set('limit', String(LOAD_MORE_CHUNK))
+        const r = await apiFetch(`/stock/${symbol}?${params}`)
+        const data = await r.json()
+        if (!active || !data?.candles?.length) {
+          stateRef.hasMoreHistory = false
+          return
+        }
+        const newCandles = data.candles.map((c) => ({
+          time: c.time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        }))
+        const newCandleData = [...newCandles, ...candleData]
+        const newSmaData = showSma && data.sma?.length
+          ? [
+              ...(data.sma || []).map((v, i) => (v != null ? { time: newCandles[i].time, value: v } : null)).filter(Boolean),
+              ...smaData,
+            ]
+          : smaData
+        const newEmaData = showEma && data.ema?.length
+          ? [
+              ...(data.ema || []).map((v, i) => (v != null ? { time: newCandles[i].time, value: v } : null)).filter(Boolean),
+              ...emaData,
+            ]
+          : emaData
+        const newRsiData = showRsi && data.rsi?.length
+          ? [
+              ...(data.rsi || []).map((v, i) => (v != null ? { time: newCandles[i].time, value: v } : null)).filter(Boolean),
+              ...rsiData,
+            ]
+          : rsiData
+        applyData(candleSeries, smaSeries, emaSeries, rsiSeries, newCandleData, newSmaData, newEmaData, newRsiData)
+        if (data.candles.length < LOAD_MORE_CHUNK) stateRef.hasMoreHistory = false
+      } finally {
+        stateRef.loadingMore = false
+      }
+    }
+
     const params = new URLSearchParams()
     if (startDate) params.set('start_date', startDate)
     if (endDate) params.set('end_date', endDate)
@@ -93,56 +184,52 @@ export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
           wickUpColor: '#22c55e',
           wickDownColor: '#ef4444',
         })
-        candleSeries.setData(candleData)
 
-        // SMA overlay (orange)
-        const sma = data.sma || []
-        if (sma.length) {
-          const smaData = candleData
-            .map((c, i) => (sma[i] != null ? { time: c.time, value: sma[i] } : null))
+        let smaSeries = null
+        let smaData = []
+        let emaSeries = null
+        let emaData = []
+        let rsiSeries = null
+        let rsiData = []
+
+        if (showSma && (data.sma || []).length) {
+          smaData = candleData
+            .map((c, i) => (data.sma[i] != null ? { time: c.time, value: data.sma[i] } : null))
             .filter(Boolean)
           if (smaData.length) {
-            const smaSeries = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2, title: 'SMA(14)' })
-            smaSeries.setData(smaData)
+            smaSeries = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2, title: 'SMA(14)' })
           }
         }
-
-        // EMA overlay (cyan)
-        const ema = data.ema || []
-        if (ema.length) {
-          const emaData = candleData
-            .map((c, i) => (ema[i] != null ? { time: c.time, value: ema[i] } : null))
+        if (showEma && (data.ema || []).length) {
+          emaData = candleData
+            .map((c, i) => (data.ema[i] != null ? { time: c.time, value: data.ema[i] } : null))
             .filter(Boolean)
           if (emaData.length) {
-            const emaSeries = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, title: 'EMA(14)' })
-            emaSeries.setData(emaData)
+            emaSeries = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, title: 'EMA(14)' })
+          }
+        }
+        if (showRsi && (data.rsi || []).length) {
+          rsiData = candleData
+            .map((c, i) => (data.rsi[i] != null ? { time: c.time, value: data.rsi[i] } : null))
+            .filter(Boolean)
+          if (rsiData.length) {
+            rsiSeries = chart.addSeries(
+              LineSeries,
+              { color: '#a855f7', lineWidth: 2, title: 'RSI(14)', priceScaleId: 'rsi' },
+              1
+            )
+            rsiSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 }, borderVisible: true })
           }
         }
 
-        // RSI in separate pane (0-100 scale)
-        const rsi = data.rsi || []
-        if (rsi.length) {
-          const rsiData = candleData
-            .map((c, i) => (rsi[i] != null ? { time: c.time, value: rsi[i] } : null))
-            .filter(Boolean)
-          if (rsiData.length) {
-            const rsiSeries = chart.addSeries(
-              LineSeries,
-              {
-                color: '#a855f7',
-                lineWidth: 2,
-                title: 'RSI(14)',
-                priceScaleId: 'rsi',
-              },
-              1
-            )
-            rsiSeries.setData(rsiData)
-            chart.priceScale('rsi').applyOptions({
-              scaleMargins: { top: 0.1, bottom: 0.1 },
-              borderVisible: true,
-            })
+        applyData(candleSeries, smaSeries, emaSeries, rsiSeries, candleData, smaData, emaData, rsiData)
+
+        unsubRef.current = chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+          if (!range || range.from == null) return
+          if (range.from < LOAD_MORE_THRESHOLD) {
+            loadMoreHistory(candleSeries, smaSeries, emaSeries, rsiSeries)
           }
-        }
+        })
 
         chart.timeScale().fitContent()
 
@@ -163,11 +250,12 @@ export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
       active = false
       clearTimeout(initTimer)
       controller.abort()
+      unsubRef.current?.()
       resizeObserver.disconnect()
       chart.remove()
       chartRef.current = null
     }
-  }, [symbol, startDate, endDate, onPriceUpdate])
+  }, [symbol, startDate, endDate, onPriceUpdate, showSma, showEma, showRsi])
 
   return (
     <div className="chart-shell">

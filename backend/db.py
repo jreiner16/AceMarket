@@ -87,6 +87,7 @@ def init_db():
 
 
 # --- Default settings ---
+DEFAULT_WATCHLIST = ["AAPL", "MSFT", "GOOGL", "TSLA"]
 DEFAULT_SETTINGS = {
     "initial_cash": 100000,
     "slippage": 0.0,
@@ -109,8 +110,13 @@ def get_settings(user_id: str) -> dict:
         cur.execute("SELECT settings_json FROM settings WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
     if row:
-        return {**DEFAULT_SETTINGS, **json.loads(row["settings_json"])}
-    return DEFAULT_SETTINGS.copy()
+        data = {**DEFAULT_SETTINGS, **json.loads(row["settings_json"])}
+        if "watchlist" not in data or not isinstance(data.get("watchlist"), list):
+            data["watchlist"] = DEFAULT_WATCHLIST.copy()
+        return data
+    out = DEFAULT_SETTINGS.copy()
+    out["watchlist"] = DEFAULT_WATCHLIST.copy()
+    return out
 
 
 def save_settings(user_id: str, settings: dict):
