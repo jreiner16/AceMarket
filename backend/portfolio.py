@@ -1,5 +1,3 @@
-from stock import Stock
-
 class Portfolio:
     def __init__(self):
         self._positions = {}  # symbol -> {"stock": Stock, "quantity": int (signed), "avg_price": float, "realized_pnl": float}
@@ -7,7 +5,7 @@ class Portfolio:
         self.cash = 0
         self.slippage = 0  # decimal, e.g. 0.001 = 0.1%
         self.slippage_bps = 0  # basis points (overrides slippage if > 0), e.g. 10 = 10 bps
-        self.commission = 0  # decimal pct of notional, e.g. 0.001 = 0.1%
+        self.commission = 0  # decimal pct (0.01 = 1%)
         self.commission_per_order = 0.0  # $ per order
         self.commission_per_share = 0.0  # $ per share
         # Risk / constraints (defaults are permissive)

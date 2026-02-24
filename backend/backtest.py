@@ -58,13 +58,13 @@ _ALLOWED_DUNDER_ATTRS = {
 }
 
 
-def _validate_strategy_code(code: str) -> ast.AST:
+def _validate_strategy_code(code: str, *, block_lookahead: bool = True) -> ast.AST:
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as e:
         raise ValueError(f"Syntax error: {e}")
 
-    # Block look-ahead: stock.df, .iloc, .loc expose raw data and enable future peeking
+    # Block look-ahead when enabled: stock.df, .iloc, .loc expose raw data and enable future peeking
     _FORBIDDEN_ATTRS = {"df", "iloc", "loc", "iat", "at", "values", "index"}
 
     for node in ast.walk(tree):
@@ -73,9 +73,9 @@ def _validate_strategy_code(code: str) -> ast.AST:
         if isinstance(node, (ast.Global, ast.Nonlocal)):
             raise ValueError("global/nonlocal are not allowed in strategy code")
         if isinstance(node, ast.Attribute) and isinstance(node.attr, str):
-            if node.attr in _FORBIDDEN_ATTRS:
+            if block_lookahead and node.attr in _FORBIDDEN_ATTRS:
                 raise ValueError(
-                    f"Access to '{node.attr}' is not allowed (look-ahead risk). "
+                    f"[Lookahead blocked] Access to '{node.attr}' is not allowed. "
                     "Use stock.price(index), stock.get_candle(index), stock.sma(period), etc. "
                     "Only use data at or before the current bar index in update()."
                 )
@@ -121,9 +121,9 @@ def _safe_builtins() -> dict:
     }
 
 
-def _exec_strategy_code(stock, portfolio, code):
+def _exec_strategy_code(stock, portfolio, code, *, block_lookahead: bool = True):
     """Execute validated strategy code. Runs in thread with timeout."""
-    tree = _validate_strategy_code(code)
+    tree = _validate_strategy_code(code, block_lookahead=block_lookahead)
     namespace = {
         "Strategy": Strategy,
         "__builtins__": _safe_builtins(),
@@ -136,14 +136,14 @@ def _exec_strategy_code(stock, portfolio, code):
     raise ValueError("Code must define a class that inherits from Strategy")
 
 
-def create_strategy_from_code(stock, portfolio, code):
+def create_strategy_from_code(stock, portfolio, code, *, block_lookahead: bool = True):
     """Execute user code and return a Strategy instance. Code must define a class that inherits from Strategy."""
     if not code or not code.strip():
         raise ValueError("Strategy code cannot be empty")
     if len(code) > STRATEGY_CODE_MAX_LEN:
         raise ValueError(f"Strategy code exceeds maximum length ({STRATEGY_CODE_MAX_LEN})")
     with ThreadPoolExecutor(max_workers=1) as ex:
-        future = ex.submit(_exec_strategy_code, stock, portfolio, code)
+        future = ex.submit(_exec_strategy_code, stock, portfolio, code, block_lookahead=block_lookahead)
         try:
             return future.result(timeout=STRATEGY_EXEC_TIMEOUT)
         except FuturesTimeoutError:

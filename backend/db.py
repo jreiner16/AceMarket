@@ -4,7 +4,7 @@ import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Optional
 
 from config import DB_PATH
 
@@ -100,6 +100,7 @@ DEFAULT_SETTINGS = {
     "max_order_qty": 0,
     "short_margin_requirement": 1.5,
     "auto_liquidate_end": True,
+    "block_lookahead": True,
 }
 
 

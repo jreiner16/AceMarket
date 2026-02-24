@@ -20,6 +20,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
   const [maxOrderQty, setMaxOrderQty] = useState('0')
   const [shortMarginRequirement, setShortMarginRequirement] = useState('1.5')
   const [autoLiquidateEnd, setAutoLiquidateEnd] = useState(true)
+  const [blockLookahead, setBlockLookahead] = useState(true)
   const [confirmClear, setConfirmClear] = useState(false)
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
           setMaxOrderQty(String(s.max_order_qty ?? 0))
           setShortMarginRequirement(String(s.short_margin_requirement ?? 1.5))
           setAutoLiquidateEnd(Boolean(s.auto_liquidate_end ?? true))
+          setBlockLookahead(Boolean(s.block_lookahead ?? true))
         })
     }
   }, [open])
@@ -78,6 +80,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
         max_order_qty: Number.isFinite(moq) ? moq : 0,
         short_margin_requirement: Number.isFinite(smr) ? smr : 1.5,
         auto_liquidate_end: Boolean(autoLiquidateEnd),
+        block_lookahead: Boolean(blockLookahead),
       })
       onClose()
     } catch (err) {
@@ -217,6 +220,15 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
                 </div>
                 <div className="settings-hint">
                   This prevents multi-symbol runs from getting stuck with open positions (and “not enough cash”).
+                </div>
+                <div className="settings-row settings-row-inline">
+                  <label className="settings-check">
+                    <input type="checkbox" checked={blockLookahead} onChange={(e) => setBlockLookahead(e.target.checked)} />
+                    Block lookahead (prevent cheating)
+                  </label>
+                </div>
+                <div className="settings-hint">
+                  When on, strategy code cannot access stock.df, .iloc, .loc, etc. Violations appear in the Console.
                 </div>
               </fieldset>
             </div>

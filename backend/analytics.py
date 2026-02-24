@@ -1,4 +1,4 @@
-"""Performance analytics: equity metrics, trade metrics, and risk-adjusted returns."""
+"""Performance analytics (equity, realized pnl, etc)"""
 from __future__ import annotations
 
 import os

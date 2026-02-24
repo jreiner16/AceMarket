@@ -1,5 +1,4 @@
-"""Stock data and technical indicators."""
-from __future__ import annotations
+"""Stock data"""
 
 import logging
 from datetime import datetime, timedelta
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_float_for_json(x: float) -> Optional[float]:
-    """Convert value for JSON; use None for NaN to avoid invalid JSON."""
+    """Convert values for use in JSONs"""
     if pd.isna(x) or (isinstance(x, float) and np.isnan(x)):
         return None
     return float(x)
@@ -48,8 +47,8 @@ class Stock:
         self.df = self.df.dropna(subset=["Open", "High", "Low", "Close"])
         logger.info("Loaded data for %s (%d rows)", self.symbol, len(self.df))
 
+    # Indicators
     def rsi(self, period: int = 14) -> List[Optional[float]]:
-        """RSI. Returns None for warmup period (first `period` bars)."""
         close = self.df["Close"]
         delta = close.diff()
         gain = delta.where(delta > 0, 0.0)
@@ -63,12 +62,10 @@ class Stock:
         return [_safe_float_for_json(x) for x in rsi_series.tolist()]
 
     def sma(self, period: int = 14) -> List[Optional[float]]:
-        """SMA. Returns None for warmup period."""
         s = self.df["Close"].rolling(window=period).mean()
         return [_safe_float_for_json(x) for x in s.tolist()]
 
     def ema(self, period: int = 14) -> List[Optional[float]]:
-        """EMA. Returns None for warmup period."""
         s = self.df["Close"].ewm(span=period, adjust=False).mean()
         return [_safe_float_for_json(x) for x in s.tolist()]
 
@@ -89,7 +86,6 @@ class Stock:
         period: int = 20,
         dev: float = 2,
     ) -> List[Tuple[Optional[float], Optional[float], Optional[float]]]:
-        """Upper, middle, lower. Returns (None, None, None) for warmup."""
         close = self.df["Close"]
         middle = close.rolling(window=period).mean()
         std = close.rolling(window=period).std()
@@ -125,7 +121,6 @@ class Stock:
         return float(self._tr_series().iloc[i])
 
     def atr(self, period: int = 14) -> List[Optional[float]]:
-        """ATR. Returns None for warmup."""
         tr = self._tr_series()
         tr_from_period = pd.concat([
             pd.Series([tr.iloc[1 : period + 1].mean()], index=[tr.index[period]]),
@@ -152,7 +147,6 @@ class Stock:
         return (plus_dm.fillna(0).tolist(), minus_dm.fillna(0).tolist())
 
     def adx(self, period: int = 14) -> List[Optional[float]]:
-        """ADX. Returns None for warmup."""
         atr_list = self.atr(period)
         atr_vals = np.array([(x if x is not None else np.nan) for x in atr_list], dtype=float)
         plus_dm, minus_dm = self._dm()
@@ -189,7 +183,9 @@ class Stock:
         adx_series[2 * period :] = adx_smoothed.values[1:]
         return [_safe_float_for_json(x) for x in adx_series.tolist()]
 
+    # Data access
     def to_iloc(self, index: Optional[Union[int, str]] = None) -> int:
+        # convert given index to ineger location
         if index is None:
             return self.df.index.size - 1
         if isinstance(index, (int, np.integer)):

@@ -1,4 +1,4 @@
-"""Market data via yfinance. No API key required."""
+"""Fetch market data via yfinance. If you switch API provider, this is the only class you'll need to change (hopefully)"""
 from __future__ import annotations
 
 import logging

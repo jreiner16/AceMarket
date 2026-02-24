@@ -130,7 +130,11 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
       load()
       onRefresh?.()
     } catch (e) {
-      console.error('Strategy:', e.detail || e.message || 'Failed to save')
+      const msg = e.detail || e.message || 'Failed to save'
+      console.error('Strategy:', msg)
+      if (String(msg).includes('Lookahead blocked')) {
+        console.error('Lookahead violation: strategy code cannot access stock.df, .iloc, .loc, etc.')
+      }
     }
   }
 

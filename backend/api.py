@@ -1,7 +1,6 @@
-"""AceMarket API — FastAPI server with auth, persistence, and rate limiting."""
+"""AceMarket API — FastAPI server with auth, persistence, and rate limiting"""
 import logging
 import time
-from datetime import datetime
 from typing import Optional
 
 import pandas as pd
@@ -263,6 +262,7 @@ class SettingsUpdate(BaseModel):
     max_order_qty: Optional[int] = None
     short_margin_requirement: Optional[float] = None
     auto_liquidate_end: Optional[bool] = None
+    block_lookahead: Optional[bool] = None
 
 
 class StrategyCreate(BaseModel):
@@ -495,11 +495,13 @@ def create_strategy_endpoint(req: StrategyCreate, user_id: str = Depends(verify_
     existing = next((s for s in db.get_strategies(user_id) if s["name"].lower() == name.lower()), None)
     if existing:
         raise HTTPException(status_code=400, detail=f"Strategy '{name}' already exists")
+    settings = db.get_settings(user_id)
+    block_lookahead = bool(settings.get("block_lookahead", True))
     try:
         stock = get_stock("AAPL")
         port = Portfolio()
         port.add_cash(1000)
-        create_strategy_from_code(stock, port, req.code)
+        create_strategy_from_code(stock, port, req.code, block_lookahead=block_lookahead)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     strat = db.create_strategy(user_id, name, req.code)
@@ -522,11 +524,13 @@ def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str
         raise HTTPException(status_code=400, detail="Strategy code cannot be empty")
     if upd.code is not None and len(upd.code) > STRATEGY_CODE_MAX_LEN:
         raise HTTPException(status_code=400, detail=f"Strategy code exceeds maximum length ({STRATEGY_CODE_MAX_LEN})")
+    settings = db.get_settings(user_id)
+    block_lookahead = bool(settings.get("block_lookahead", True))
     try:
         stock = get_stock("AAPL")
         port = Portfolio()
         port.add_cash(1000)
-        create_strategy_from_code(stock, port, upd.code if upd.code is not None else strat["code"])
+        create_strategy_from_code(stock, port, upd.code if upd.code is not None else strat["code"], block_lookahead=block_lookahead)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     updated = db.update_strategy(user_id, strategy_id, upd.name, upd.code)
@@ -598,7 +602,8 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             _apply_portfolio_constraints(port, settings)
 
             stock = get_stock(symbol)
-            strategy_obj = create_strategy_from_code(stock, port, strat["code"])
+            block_lookahead = bool(settings.get("block_lookahead", True))
+            strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
             bt = Backtest(strategy_obj, port)
 
             if train_end and test_start:
@@ -624,7 +629,7 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
                 port.set_allow_short(bool(settings.get("allow_short", True)))
                 port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
                 _apply_portfolio_constraints(port, settings)
-                strategy_obj = create_strategy_from_code(stock, port, strat["code"])
+                strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
                 bt = Backtest(strategy_obj, port)
                 bt.run(test_start, req.end_date)
             else:
@@ -870,6 +875,8 @@ def update_settings_endpoint(upd: SettingsUpdate, user_id: str = Depends(verify_
         settings["short_margin_requirement"] = float(upd.short_margin_requirement)
     if upd.auto_liquidate_end is not None:
         settings["auto_liquidate_end"] = bool(upd.auto_liquidate_end)
+    if upd.block_lookahead is not None:
+        settings["block_lookahead"] = bool(upd.block_lookahead)
 
     if settings.get("max_trade_value", 0.0) and settings.get("min_trade_value", 0.0):
         if float(settings["max_trade_value"]) < float(settings["min_trade_value"]):

@@ -1,11 +1,6 @@
 class Strategy:
     """
-    Base class for backtest strategies. Override start, update, and end.
-
-    LOOK-AHEAD RULE: In update(open, high, low, close, index), you must only use data
-    at or before `index`. Never access stock.df, .iloc, .loc, or index into indicator
-    series beyond the current bar (e.g. sma(14)[index+1] is forbidden). Fills occur
-    at bar close; you cannot use intra-bar High/Low for stops/limits.
+    Base class for a backtest strategy. Start, update and end are the three main methods to use. 
     """
 
     def __init__(self, stock, portfolio):
