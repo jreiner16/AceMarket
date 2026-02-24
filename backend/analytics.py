@@ -1,10 +1,11 @@
 """Performance analytics: equity metrics, trade metrics, and risk-adjusted returns."""
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable
 
 TRADING_DAYS_PER_YEAR = 252
-RISK_FREE_RATE_ANNUAL = 0.0  # Configurable; 0 for simplicity
+RISK_FREE_RATE_ANNUAL = float(os.environ.get("RISK_FREE_RATE_ANNUAL", "0.04"))  # e.g. 0.04 = 4% T-bills
 
 
 def _safe_float(x: Any, default: float = 0.0) -> float:
@@ -96,7 +97,28 @@ def compute_equity_metrics(
             max_dd_duration = i - dd_start
 
     # Daily returns for proper Sharpe/Sortino
-    daily_values, _ = _expand_equity_to_daily(points, initial_cash)
+    daily_values, daily_dates = _expand_equity_to_daily(points, initial_cash)
+
+    # Max drawdown duration in calendar days (from daily series)
+    max_dd_duration_days = 0
+    if len(daily_values) > 1 and daily_dates and len(daily_dates) == len(daily_values):
+        peak_daily = daily_values[0]
+        dd_start_idx = 0
+        max_dd_daily = 0.0
+        for i, v in enumerate(daily_values):
+            if v > peak_daily:
+                peak_daily = v
+                dd_start_idx = i
+            dd = (v - peak_daily) / peak_daily if peak_daily else 0.0
+            if dd < max_dd_daily:  # deeper drawdown
+                max_dd_daily = dd
+                try:
+                    from datetime import datetime
+                    start_d = datetime.strptime(str(daily_dates[dd_start_idx])[:10], "%Y-%m-%d")
+                    end_d = datetime.strptime(str(daily_dates[i])[:10], "%Y-%m-%d")
+                    max_dd_duration_days = (end_d - start_d).days
+                except Exception:
+                    max_dd_duration_days = i - dd_start_idx
     daily_returns = []
     for i in range(1, len(daily_values)):
         prev, cur = daily_values[i - 1], daily_values[i]
@@ -155,6 +177,7 @@ def compute_equity_metrics(
         "max_drawdown": float(max_dd),
         "max_drawdown_pct": _pct(max_dd),
         "max_drawdown_duration": max_dd_duration,
+        "max_drawdown_duration_days": max_dd_duration_days,
         "peak_value": float(max(values)) if values else start_value,
         "low_value": float(min(values)) if values else start_value,
         "points": len(values),

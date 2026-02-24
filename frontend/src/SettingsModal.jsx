@@ -1,3 +1,4 @@
+// SettingsModal -- popup for user settings like fees, trade limits, etc
 import { useState, useEffect } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
 import { apiGet, apiPut, apiPost } from './apiClient'
@@ -6,7 +7,10 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
   const [tab, setTab] = useState('order')
   const [initialCash, setInitialCash] = useState('100000')
   const [slippage, setSlippage] = useState('0')
+  const [slippageBps, setSlippageBps] = useState('0')
   const [commission, setCommission] = useState('0')
+  const [commissionPerOrder, setCommissionPerOrder] = useState('0')
+  const [commissionPerShare, setCommissionPerShare] = useState('0')
   const [allowShort, setAllowShort] = useState(true)
   const [maxPositions, setMaxPositions] = useState('0')
   const [maxPositionPct, setMaxPositionPct] = useState('0')
@@ -25,7 +29,10 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
         .then((s) => {
           setInitialCash(String(s.initial_cash ?? 100000))
           setSlippage(String(s.slippage ?? 0))
+          setSlippageBps(String(s.slippage_bps ?? 0))
           setCommission(String(s.commission ?? 0))
+          setCommissionPerOrder(String(s.commission_per_order ?? 0))
+          setCommissionPerShare(String(s.commission_per_share ?? 0))
           setAllowShort(Boolean(s.allow_short ?? true))
           setMaxPositions(String(s.max_positions ?? 0))
           setMaxPositionPct(String(s.max_position_pct ?? 0))
@@ -52,10 +59,16 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
       const moq = Number.parseInt(maxOrderQty, 10)
       const smr = Number(shortMarginRequirement)
 
+      const sbps = Number(slippageBps)
+      const cpo = Number(commissionPerOrder)
+      const cps = Number(commissionPerShare)
       await apiPut('/settings', {
         initial_cash: Number.isFinite(ic) ? ic : 100000,
         slippage: Number.isFinite(s) ? s : 0,
+        slippage_bps: Number.isFinite(sbps) ? sbps : 0,
         commission: Number.isFinite(c) ? c : 0,
+        commission_per_order: Number.isFinite(cpo) ? cpo : 0,
+        commission_per_share: Number.isFinite(cps) ? cps : 0,
         allow_short: Boolean(allowShort),
         max_positions: Number.isFinite(mp) ? mp : 0,
         max_position_pct: Number.isFinite(mpp) ? mpp : 0,
@@ -93,13 +106,26 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
               <fieldset className="settings-group">
                 <legend>Fees</legend>
                 <div className="settings-row">
-                  <label className="settings-label">Slippage (0–1)</label>
+                  <label className="settings-label">Slippage (decimal, e.g. 0.001 = 0.1%)</label>
                   <input type="number" className="settings-input" value={slippage} onChange={(e) => setSlippage(e.target.value)} min="0" max="0.999" step="0.001" />
                 </div>
                 <div className="settings-row">
-                  <label className="settings-label">Commission (0–1)</label>
+                  <label className="settings-label">Slippage (bps, overrides above if &gt;0)</label>
+                  <input type="number" className="settings-input" value={slippageBps} onChange={(e) => setSlippageBps(e.target.value)} min="0" step="1" placeholder="e.g. 10" />
+                </div>
+                <div className="settings-row">
+                  <label className="settings-label">Commission % of notional (0–1)</label>
                   <input type="number" className="settings-input" value={commission} onChange={(e) => setCommission(e.target.value)} min="0" max="0.999" step="0.001" />
                 </div>
+                <div className="settings-row">
+                  <label className="settings-label">Commission $ per order</label>
+                  <input type="number" className="settings-input" value={commissionPerOrder} onChange={(e) => setCommissionPerOrder(e.target.value)} min="0" step="0.01" />
+                </div>
+                <div className="settings-row">
+                  <label className="settings-label">Commission $ per share</label>
+                  <input type="number" className="settings-input" value={commissionPerShare} onChange={(e) => setCommissionPerShare(e.target.value)} min="0" step="0.001" />
+                </div>
+                <div className="settings-hint">Per-order and per-share override % if set.</div>
               </fieldset>
               <fieldset className="settings-group">
                 <legend>Trade Limits</legend>

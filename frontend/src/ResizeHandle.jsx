@@ -1,3 +1,4 @@
+// ResizeHandle -- custom handle/bar for resizing panels
 import { useRef, useCallback } from 'react'
 
 export function ResizeHandle({ direction, onResize, className = '' }) {

@@ -1,3 +1,4 @@
+// Watchlist -- select/search for stocks
 import { useState, useEffect, useRef } from 'react'
 import { apiGet } from './apiClient'
 

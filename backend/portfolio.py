@@ -5,8 +5,11 @@ class Portfolio:
         self._positions = {}  # symbol -> {"stock": Stock, "quantity": int (signed), "avg_price": float, "realized_pnl": float}
         self._realized = {}  # symbol -> realized pnl across all closed lots/trades
         self.cash = 0
-        self.slippage = 0
-        self.commission = 0
+        self.slippage = 0  # decimal, e.g. 0.001 = 0.1%
+        self.slippage_bps = 0  # basis points (overrides slippage if > 0), e.g. 10 = 10 bps
+        self.commission = 0  # decimal pct of notional, e.g. 0.001 = 0.1%
+        self.commission_per_order = 0.0  # $ per order
+        self.commission_per_share = 0.0  # $ per share
         # Risk / constraints (defaults are permissive)
         self.allow_short = True
         self.max_positions = 0  # 0 => unlimited
@@ -54,26 +57,43 @@ class Portfolio:
     def positions(self):
         return list(self._positions.values())
 
+    def _slippage_factor(self, side: str) -> float:
+        """Slippage as decimal (bps converted if slippage_bps set)."""
+        if self.slippage_bps and float(self.slippage_bps) > 0:
+            slip = float(self.slippage_bps) / 10000.0
+        else:
+            slip = float(self.slippage)
+        if slip < 0 or slip >= 1:
+            raise ValueError("Slippage must be in [0, 1)")
+        return slip if side == "buy" else -slip
+
     def _fill_price(self, side, price):
         """
-        Fill price with slippage and commission applied separately.
-        Slippage: adverse price move (buy higher, sell lower).
-        Commission: % of trade value (e.g. 0.001 = 0.1%).
-        buy:  fill = price * (1 + slippage) * (1 + commission)
-        sell: fill = price * (1 - slippage) * (1 - commission)
+        Fill price with slippage only. Commission is applied separately via _compute_commission.
+        Slippage: adverse move in bps (if slippage_bps) or decimal (e.g. 0.001 = 0.1%).
+        buy:  fill = price * (1 + slippage)
+        sell: fill = price * (1 - slippage)
         """
         price = float(price)
-        slip = float(self.slippage)
-        comm = float(self.commission)
-        if slip < 0 or comm < 0:
-            raise ValueError("Slippage/commission must be non-negative")
-        if slip >= 1 or comm >= 1:
-            raise ValueError("Slippage and commission must be < 1.0 (e.g. 0.001 = 0.1%)")
+        slip = self._slippage_factor(side)
         if side == "buy":
-            return price * (1 + slip) * (1 + comm)
+            return price * (1 + slip)
         if side == "sell":
-            return price * (1 - slip) * (1 - comm)
+            return price * (1 - slip)
         raise ValueError("Invalid side")
+
+    def _compute_commission(self, quantity: int, notional: float) -> float:
+        """
+        Commission: per-order + per-share, or pct of notional if those are zero.
+        """
+        per_order = float(self.commission_per_order or 0)
+        per_share = float(self.commission_per_share or 0)
+        pct = float(self.commission or 0)
+        if per_order > 0 or per_share > 0:
+            return per_order + per_share * abs(int(quantity))
+        if pct > 0:
+            return notional * pct
+        return 0.0
 
     def estimate_fill_price(self, side, raw_price):
         """Public helper for strategy sizing: side in {'buy','sell'}."""
@@ -181,7 +201,9 @@ class Portfolio:
         trade_index, trade_time = self._trade_meta(stock, index)
         raw_price = stock.price(trade_index)
         price = self._fill_price("buy", raw_price)
-        cost = price * quantity
+        notional = price * quantity
+        commission = self._compute_commission(quantity, notional)
+        cost = notional + commission
         self._check_order_common(
             stock=stock,
             side="buy",
@@ -237,6 +259,7 @@ class Portfolio:
             'price': float(raw_price),
             'fill_price': float(price),
             'cost': float(cost),
+            'commission': float(commission),
             'realized_pnl': float(realized),
             'index': int(trade_index) if trade_index is not None else None,
             'time': trade_time,
@@ -252,7 +275,9 @@ class Portfolio:
             raise ValueError("Short selling is disabled")
         raw_price = stock.price(trade_index)
         price = self._fill_price("sell", raw_price)
-        proceeds = price * quantity
+        notional = price * quantity
+        commission = self._compute_commission(quantity, notional)
+        proceeds = notional - commission
         self._check_order_common(
             stock=stock,
             side="sell",
@@ -260,7 +285,7 @@ class Portfolio:
             trade_index=trade_index,
             raw_price=raw_price,
             fill_price=price,
-            trade_value=proceeds,
+            trade_value=notional,
             cost_cash_change=proceeds,
         )
         symbol = stock.symbol.upper()
@@ -310,6 +335,7 @@ class Portfolio:
             'price': float(raw_price),
             'fill_price': float(price),
             'proceeds': float(proceeds),
+            'commission': float(commission),
             'realized_pnl': float(realized),
             'index': int(trade_index) if trade_index is not None else None,
             'time': trade_time,
@@ -335,14 +361,18 @@ class Portfolio:
 
         if qty0 > 0:
             fill = self._fill_price("sell", raw_price)
-            amount = fill * quantity
-            realized = (fill - avg0) * quantity
+            notional = fill * quantity
+            commission = self._compute_commission(quantity, notional)
+            amount = notional - commission
+            realized = (fill - avg0) * quantity - commission
             new_qty = qty0 - quantity
             self.cash += amount
         else:
             fill = self._fill_price("buy", raw_price)
-            amount = -fill * quantity
-            realized = (avg0 - fill) * quantity
+            notional = fill * quantity
+            commission = self._compute_commission(quantity, notional)
+            amount = -(notional + commission)
+            realized = (avg0 - fill) * quantity - commission
             new_qty = qty0 + quantity
             self.cash += amount
 
@@ -360,6 +390,7 @@ class Portfolio:
             'price': float(raw_price),
             'fill_price': float(fill),
             'amount': float(amount),
+            'commission': float(commission),
             'realized_pnl': float(realized),
             'index': int(trade_index) if trade_index is not None else None,
             'time': trade_time,
@@ -404,8 +435,17 @@ class Portfolio:
     def set_slippage(self, slippage):
         self.slippage = slippage
 
+    def set_slippage_bps(self, bps):
+        self.slippage_bps = bps
+
     def set_commission(self, commission):
         self.commission = commission
+
+    def set_commission_per_order(self, amount):
+        self.commission_per_order = amount
+
+    def set_commission_per_share(self, amount):
+        self.commission_per_share = amount
 
     def set_allow_short(self, allow_short: bool):
         self.allow_short = bool(allow_short)

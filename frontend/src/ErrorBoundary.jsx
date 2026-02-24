@@ -1,9 +1,6 @@
+// ErrorBoundary -- catch React render errors and display a fallback UI just in case
 import { Component } from 'react'
 
-/**
- * Error boundary to catch React render errors and display a fallback UI
- * instead of a blank screen.
- */
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props)

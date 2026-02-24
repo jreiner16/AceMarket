@@ -1,5 +1,5 @@
 /**
- * Authenticated API client. Adds Firebase ID token to all requests.
+ * API client loader
  */
 import { auth } from './firebase'
 

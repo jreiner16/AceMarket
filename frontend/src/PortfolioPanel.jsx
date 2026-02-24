@@ -1,8 +1,12 @@
+// PortfolioPanel -- display of portfolio and positions
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from './apiClient'
 
 export function PortfolioPanel({ refresh }) {
   const [portfolio, setPortfolio] = useState(null)
+  const [closingSymbol, setClosingSymbol] = useState(null)
+  const [closeQty, setCloseQty] = useState('')
+  const [closeError, setCloseError] = useState(null)
 
   const load = () => {
     apiGet('/portfolio')
@@ -12,12 +16,36 @@ export function PortfolioPanel({ refresh }) {
 
   useEffect(load, [refresh])
 
-  const handleClose = async (symbol, quantity) => {
+  const handleCloseClick = (symbol, quantity) => {
+    setClosingSymbol({ symbol, maxQty: quantity })
+    setCloseQty(String(quantity))
+    setCloseError(null)
+  }
+
+  const handleCloseCancel = () => {
+    setClosingSymbol(null)
+    setCloseQty('')
+    setCloseError(null)
+  }
+
+  const handleCloseConfirm = async () => {
+    if (!closingSymbol) return
+    const qty = parseInt(closeQty, 10)
+    if (!qty || qty <= 0) {
+      setCloseError('Enter a positive quantity')
+      return
+    }
+    if (qty > closingSymbol.maxQty) {
+      setCloseError(`Max ${closingSymbol.maxQty} shares`)
+      return
+    }
+    setCloseError(null)
     try {
-      await apiPost('/portfolio/position/close', { symbol, quantity })
+      await apiPost('/portfolio/position/close', { symbol: closingSymbol.symbol, quantity: qty })
+      handleCloseCancel()
       load()
     } catch (err) {
-      console.error('Portfolio:', err.detail || err.message || 'Failed to close position')
+      setCloseError(err.detail || err.message || 'Failed to close')
     }
   }
 
@@ -66,12 +94,33 @@ export function PortfolioPanel({ refresh }) {
             <div className={`position-pnl ${p.pnl >= 0 ? 'positive' : 'negative'}`}>
               ${p.pnl?.toFixed(2)} ({p.pnl_pct?.toFixed(1)}%)
             </div>
-            <button
-              className="position-close-btn"
-              onClick={() => handleClose(p.symbol, p.quantity)}
-            >
-              Close
-            </button>
+            {closingSymbol?.symbol === p.symbol ? (
+              <div className="position-close-form">
+                <input
+                  type="number"
+                  className="position-close-input"
+                  value={closeQty}
+                  onChange={(e) => setCloseQty(e.target.value.replace(/\D/g, ''))}
+                  min={1}
+                  max={p.quantity}
+                  placeholder="Qty"
+                />
+                <button type="button" className="position-close-btn confirm" onClick={handleCloseConfirm}>
+                  Close
+                </button>
+                <button type="button" className="position-close-btn cancel" onClick={handleCloseCancel}>
+                  ×
+                </button>
+                {closeError && <span className="position-close-error">{closeError}</span>}
+              </div>
+            ) : (
+              <button
+                className="position-close-btn"
+                onClick={() => handleCloseClick(p.symbol, p.quantity)}
+              >
+                Close
+              </button>
+            )}
           </div>
         ))
       )}

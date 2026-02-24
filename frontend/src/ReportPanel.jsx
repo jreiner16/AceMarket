@@ -1,3 +1,4 @@
+// ReportPanel -- display of portfolio and backtesting metrics/reports
 import { useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
 import { apiGet, apiDelete } from './apiClient'
@@ -208,8 +209,8 @@ export function ReportPanel({ refresh, onMatchFrame }) {
           t.price,
           t.fill_price,
           t.realized_pnl,
-        ].map((x) => (x == null ? '' : String(x))).join(' ').toLowerCase()
-        return parts.includes(q)
+        ].map((x) => (x == null ? '' : String(x).toLowerCase()))
+        return parts.some((p) => p.includes(q))
       })
     }
 
@@ -471,12 +472,12 @@ export function ReportPanel({ refresh, onMatchFrame }) {
               <fieldset>
                 <legend>Equity Curve</legend>
                 <LineChart
-                points={view.equityCurve}
-                color="#0b5d1e"
-                fillColor="rgba(11,93,30,0.18)"
-                formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-                height={120}
-              />
+                  points={view.equityCurve}
+                  color="#0b5d1e"
+                  fillColor="rgba(11,93,30,0.18)"
+                  formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                  height={120}
+                />
               </fieldset>
               <fieldset>
                 <legend>Drawdown</legend>

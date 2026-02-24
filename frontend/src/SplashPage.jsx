@@ -1,3 +1,4 @@
+// SplashPage -- landing page for the website if you aren't signed in
 import { useState } from 'react'
 import { useAuth } from './authContext'
 import './SplashPage.css'

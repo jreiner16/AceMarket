@@ -1,5 +1,6 @@
+// StockChart -- stock candlestickchart display using lightweight-charts
 import { useEffect, useRef, useState } from 'react'
-import { createChart, CandlestickSeries } from 'lightweight-charts'
+import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts'
 import { apiFetch } from './apiClient'
 
 export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
@@ -93,6 +94,56 @@ export function StockChart({ symbol, startDate, endDate, onPriceUpdate }) {
           wickDownColor: '#ef4444',
         })
         candleSeries.setData(candleData)
+
+        // SMA overlay (orange)
+        const sma = data.sma || []
+        if (sma.length) {
+          const smaData = candleData
+            .map((c, i) => (sma[i] != null ? { time: c.time, value: sma[i] } : null))
+            .filter(Boolean)
+          if (smaData.length) {
+            const smaSeries = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2, title: 'SMA(14)' })
+            smaSeries.setData(smaData)
+          }
+        }
+
+        // EMA overlay (cyan)
+        const ema = data.ema || []
+        if (ema.length) {
+          const emaData = candleData
+            .map((c, i) => (ema[i] != null ? { time: c.time, value: ema[i] } : null))
+            .filter(Boolean)
+          if (emaData.length) {
+            const emaSeries = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, title: 'EMA(14)' })
+            emaSeries.setData(emaData)
+          }
+        }
+
+        // RSI in separate pane (0-100 scale)
+        const rsi = data.rsi || []
+        if (rsi.length) {
+          const rsiData = candleData
+            .map((c, i) => (rsi[i] != null ? { time: c.time, value: rsi[i] } : null))
+            .filter(Boolean)
+          if (rsiData.length) {
+            const rsiSeries = chart.addSeries(
+              LineSeries,
+              {
+                color: '#a855f7',
+                lineWidth: 2,
+                title: 'RSI(14)',
+                priceScaleId: 'rsi',
+              },
+              1
+            )
+            rsiSeries.setData(rsiData)
+            chart.priceScale('rsi').applyOptions({
+              scaleMargins: { top: 0.1, bottom: 0.1 },
+              borderVisible: true,
+            })
+          }
+        }
+
         chart.timeScale().fitContent()
 
         const lastCandle = candleData[candleData.length - 1]

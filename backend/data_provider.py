@@ -42,7 +42,22 @@ def get_ohlc(
     if out.index.tz is not None:
         out.index = out.index.tz_localize(None)
     out.index.name = "Date"
-    return out.dropna(subset=required)
+    out = out.dropna(subset=required)
+
+    # OHLC sanity validation: High >= Low, Open/Close within [Low, High], positive values
+    mask = (
+        (out["High"] >= out["Low"])
+        & (out["Open"] >= out["Low"])
+        & (out["Open"] <= out["High"])
+        & (out["Close"] >= out["Low"])
+        & (out["Close"] <= out["High"])
+        & (out[required].gt(0).all(axis=1))
+    )
+    invalid_count = (~mask).sum()
+    if invalid_count > 0:
+        logger.warning("Dropped %d invalid OHLC rows for %s (High<Low or O/C outside range or non-positive)", invalid_count, symbol)
+        out = out[mask]
+    return out
 
 
 def search_tickers(query: str, limit: int = 10) -> list[dict]:

@@ -1,3 +1,4 @@
+// ConfirmDialog -- custom popup for confirming actions like delete strategy, clear, so on
 export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onCancel }) {
   if (!open) return null
   return (

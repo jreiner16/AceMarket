@@ -1,3 +1,4 @@
+// StrategyPanel -- create/run strategies with custom python framework
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Editor from 'react-simple-code-editor'
 import { highlight, languages } from 'prismjs'
@@ -62,6 +63,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
   const [stocksDropdownOpen, setStocksDropdownOpen] = useState(false)
   const [runStart, setRunStart] = useState('2023-01-01')
   const [runEnd, setRunEnd] = useState('2024-01-01')
+  const [runTrainPct, setRunTrainPct] = useState('')  // e.g. 0.7 for 70% train, 30% OOS test
   const [runResults, setRunResults] = useState(null)
   const [running, setRunning] = useState(false)
   const [executingSymbols, setExecutingSymbols] = useState(new Set())
@@ -178,12 +180,17 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
     setRunResults(null)
     setExecutingSymbols(new Set(runSymbols))
     try {
-      const data = await apiPost('/strategies/run', {
+      const body = {
         strategy_id: selected,
         symbols: runSymbols,
         start_date: runStart,
         end_date: runEnd,
-      })
+      }
+      const trainPct = parseFloat(runTrainPct)
+      if (Number.isFinite(trainPct) && trainPct > 0 && trainPct < 1) {
+        body.train_pct = trainPct
+      }
+      const data = await apiPost('/strategies/run', body)
       setRunResults(data.results || [])
       onRefresh?.()
     } catch (e) {
@@ -365,6 +372,20 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
                   <span>to</span>
                   <input type="date" value={runEnd} onChange={(e) => setRunEnd(e.target.value)} />
                 </div>
+              </div>
+              <div className="strategy-run-modal-section">
+                <label>Walk-forward train % (0–1, optional)</label>
+                <input
+                  type="number"
+                  className="strategy-run-train-pct"
+                  value={runTrainPct}
+                  onChange={(e) => setRunTrainPct(e.target.value)}
+                  placeholder="e.g. 0.7"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                />
+                <span className="strategy-run-hint">Split into train/test for OOS validation</span>
               </div>
               {runResults && (
                 <div className="strategy-run-results">

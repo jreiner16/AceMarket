@@ -1,3 +1,4 @@
+// OrderPanel -- menu for buying and selling stocks
 import { useState } from 'react'
 import { apiPost } from './apiClient'
 

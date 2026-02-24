@@ -64,13 +64,22 @@ def _validate_strategy_code(code: str) -> ast.AST:
     except SyntaxError as e:
         raise ValueError(f"Syntax error: {e}")
 
+    # Block look-ahead: stock.df, .iloc, .loc expose raw data and enable future peeking
+    _FORBIDDEN_ATTRS = {"df", "iloc", "loc", "iat", "at", "values", "index"}
+
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             raise ValueError("Imports are not allowed in strategy code")
         if isinstance(node, (ast.Global, ast.Nonlocal)):
             raise ValueError("global/nonlocal are not allowed in strategy code")
-        if isinstance(node, ast.Attribute) and isinstance(node.attr, str) and node.attr.startswith("__"):
-            if node.attr not in _ALLOWED_DUNDER_ATTRS:
+        if isinstance(node, ast.Attribute) and isinstance(node.attr, str):
+            if node.attr in _FORBIDDEN_ATTRS:
+                raise ValueError(
+                    f"Access to '{node.attr}' is not allowed (look-ahead risk). "
+                    "Use stock.price(index), stock.get_candle(index), stock.sma(period), etc. "
+                    "Only use data at or before the current bar index in update()."
+                )
+            if node.attr.startswith("__") and node.attr not in _ALLOWED_DUNDER_ATTRS:
                 raise ValueError("Access to dunder attributes is not allowed")
         if isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
             raise ValueError(f"Use of '{node.id}' is not allowed in strategy code")

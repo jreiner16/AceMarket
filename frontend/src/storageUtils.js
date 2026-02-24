@@ -1,3 +1,4 @@
+// StorageUtils -- helper class for loading things from firebase storage
 import { ref, uploadBytes, getDownloadURL, getBytes } from 'firebase/storage'
 import { storage } from './firebase'
 

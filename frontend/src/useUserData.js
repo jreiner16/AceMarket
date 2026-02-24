@@ -1,3 +1,4 @@
+// UseUserData -- sync user data (eg watchlist, settings) between browser and backend
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { uploadFile, downloadFileAsText } from './storageUtils'
 
@@ -82,7 +83,7 @@ export function useUserData(user) {
           saveToLocal(user.uid, { watchlist: next })
           if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
           saveTimeoutRef.current = setTimeout(() => {
-            save(user.uid, { watchlist: next }).catch(() => {})
+            save(user.uid, { watchlist: next }).catch(() => { })
             saveTimeoutRef.current = null
           }, SAVE_DEBOUNCE_MS)
         }

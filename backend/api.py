@@ -7,6 +7,7 @@ from typing import Optional
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 from pydantic import BaseModel
 
 from analytics import compute_report
@@ -70,8 +71,27 @@ app.add_middleware(
 )
 
 
+_RATE_LIMIT_SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
+
+
 @app.middleware("http")
-async def add_security_headers(request, call_next):
+async def rate_limit_middleware(request: Request, call_next):
+    """General rate limit for API routes (by auth token or IP)."""
+    path = request.url.path.rstrip("/")
+    if path in _RATE_LIMIT_SKIP_PATHS or not path.startswith("/api"):
+        return await call_next(request)
+    auth = request.headers.get("Authorization") or ""
+    ip = request.client.host if request.client else "unknown"
+    key = f"general:{auth[:32]}" if auth else f"general:ip:{ip}"
+    try:
+        _check_rate_limit(key, RATE_LIMIT_GENERAL_WINDOW_SEC, RATE_LIMIT_GENERAL_MAX)
+    except HTTPException:
+        raise
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
     """Add security headers to all responses."""
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -139,7 +159,10 @@ def get_portfolio(user_id: str) -> Portfolio:
         port.add_cash(settings["initial_cash"])
 
     port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+    port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
     port.set_commission(settings.get("commission", 0.0) or 0.0)
+    port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+    port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
     port.set_allow_short(bool(settings.get("allow_short", True)))
     port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
     _apply_portfolio_constraints(port, settings)
@@ -227,7 +250,10 @@ class ClosePositionRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     initial_cash: Optional[float] = None
     slippage: Optional[float] = None
+    slippage_bps: Optional[float] = None
     commission: Optional[float] = None
+    commission_per_order: Optional[float] = None
+    commission_per_share: Optional[float] = None
     allow_short: Optional[bool] = None
     max_positions: Optional[int] = None
     max_position_pct: Optional[float] = None
@@ -254,6 +280,7 @@ class RunStrategyRequest(BaseModel):
     symbols: list[str]
     start_date: str
     end_date: str
+    train_pct: Optional[float] = None  # 0 < x < 1: walk-forward, train on first x, test on rest
 
 
 # --- Endpoints ---
@@ -382,7 +409,7 @@ def get_portfolio_state(user_id: str = Depends(verify_token)) -> dict:
         equity_curve_enriched.append(q)
 
     metrics = compute_report(trade_log=trade_log, equity_curve=equity_curve_enriched, initial_cash=initial)
-    save_portfolio(user_id, port, settings)
+    # Do not save on read; portfolio is persisted only on mutations (open/close/clear/settings)
 
     return {
         "cash": port.cash,
@@ -528,21 +555,44 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
     if not symbols:
         raise HTTPException(status_code=400, detail="Select at least one stock")
 
+    train_pct = req.train_pct
+    if train_pct is not None and (train_pct <= 0 or train_pct >= 1):
+        raise HTTPException(status_code=400, detail="train_pct must be between 0 and 1 (exclusive)")
+
     settings = db.get_settings(user_id)
     initial_total = float(settings["initial_cash"])
     cash_per_symbol = initial_total / len(symbols)
+
+    # Walk-forward: compute train/test split
+    start_d = pd.to_datetime(req.start_date)
+    end_d = pd.to_datetime(req.end_date)
+    if train_pct and 0 < train_pct < 1:
+        delta = (end_d - start_d).days
+        split_offset = int(delta * train_pct)
+        split_d = start_d + pd.Timedelta(days=split_offset)
+        split_date = split_d.strftime("%Y-%m-%d")
+        train_end = split_date
+        test_start = split_date
+    else:
+        train_end = None
+        test_start = None
 
     results = []
     combined_trade_log = []
     portfolio_equity_curves = []  # list of (equity_curve, trade_log) per symbol
     total_end_value = 0.0
+    train_metrics = None
+    test_metrics = None
 
     for symbol in symbols:
         try:
             port = Portfolio()
             port.add_cash(cash_per_symbol)
             port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+            port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
             port.set_commission(settings.get("commission", 0.0) or 0.0)
+            port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+            port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
             port.set_allow_short(bool(settings.get("allow_short", True)))
             port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
             _apply_portfolio_constraints(port, settings)
@@ -550,7 +600,35 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             stock = get_stock(symbol)
             strategy_obj = create_strategy_from_code(stock, port, strat["code"])
             bt = Backtest(strategy_obj, port)
-            bt.run(req.start_date, req.end_date)
+
+            if train_end and test_start:
+                # Walk-forward: train then test (OOS)
+                bt.run(req.start_date, train_end)
+                train_val = float(port.get_value(stock.to_iloc(train_end)))
+                train_ec = list(port.equity_curve or [])
+                train_tl = list(port.trade_log or [])
+                if train_metrics is None:
+                    train_metrics = compute_report(
+                        trade_log=train_tl,
+                        equity_curve=[{"i": 0, "v": cash_per_symbol, "time": req.start_date}] + train_ec,
+                        initial_cash=cash_per_symbol,
+                    )
+                # Fresh portfolio for test period
+                port = Portfolio()
+                port.add_cash(cash_per_symbol)
+                port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+                port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
+                port.set_commission(settings.get("commission", 0.0) or 0.0)
+                port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+                port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
+                port.set_allow_short(bool(settings.get("allow_short", True)))
+                port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
+                _apply_portfolio_constraints(port, settings)
+                strategy_obj = create_strategy_from_code(stock, port, strat["code"])
+                bt = Backtest(strategy_obj, port)
+                bt.run(test_start, req.end_date)
+            else:
+                bt.run(req.start_date, req.end_date)
 
             if settings.get("auto_liquidate_end", True):
                 pos = port.get_position(stock)
@@ -572,6 +650,14 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             })
             combined_trade_log.extend(port.trade_log or [])
             portfolio_equity_curves.append((list(port.equity_curve or []), list(port.trade_log or [])))
+            if train_end and test_start and test_metrics is None:
+                test_ec = list(port.equity_curve or [])
+                test_tl = list(port.trade_log or [])
+                test_metrics = compute_report(
+                    trade_log=test_tl,
+                    equity_curve=[{"i": 0, "v": cash_per_symbol, "time": test_start}] + test_ec,
+                    initial_cash=cash_per_symbol,
+                )
         except HTTPException:
             raise
         except Exception as e:
@@ -641,6 +727,9 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
         "symbols": symbols,
         "start_date": req.start_date,
         "end_date": req.end_date,
+        "train_pct": train_pct,
+        "train_metrics": train_metrics,
+        "test_metrics": test_metrics,
         "results": results,
         "portfolio": {
             "initial_cash": initial,
@@ -732,10 +821,22 @@ def update_settings_endpoint(upd: SettingsUpdate, user_id: str = Depends(verify_
         if upd.slippage < 0 or upd.slippage >= 1:
             raise HTTPException(status_code=400, detail="slippage must be in [0, 1) as decimal (e.g. 0.001 = 0.1%%)")
         settings["slippage"] = float(upd.slippage)
+    if upd.slippage_bps is not None:
+        if upd.slippage_bps < 0 or upd.slippage_bps > 10000:
+            raise HTTPException(status_code=400, detail="slippage_bps must be in [0, 10000]")
+        settings["slippage_bps"] = float(upd.slippage_bps)
     if upd.commission is not None:
         if upd.commission < 0 or upd.commission >= 1:
             raise HTTPException(status_code=400, detail="commission must be in [0, 1) as decimal (e.g. 0.001 = 0.1%%)")
         settings["commission"] = float(upd.commission)
+    if upd.commission_per_order is not None:
+        if upd.commission_per_order < 0:
+            raise HTTPException(status_code=400, detail="commission_per_order must be >= 0")
+        settings["commission_per_order"] = float(upd.commission_per_order)
+    if upd.commission_per_share is not None:
+        if upd.commission_per_share < 0:
+            raise HTTPException(status_code=400, detail="commission_per_share must be >= 0")
+        settings["commission_per_share"] = float(upd.commission_per_share)
 
     if upd.allow_short is not None:
         settings["allow_short"] = bool(upd.allow_short)

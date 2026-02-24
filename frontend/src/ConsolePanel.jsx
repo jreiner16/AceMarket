@@ -1,3 +1,4 @@
+// ConsolePanel -- display console logs, errors, etc
 import { useState, useEffect } from 'react'
 import { subscribe, clear, clearErrors } from './consoleStore'
 
