@@ -7,11 +7,11 @@ export function OrderPanel({ symbol, price, onOrder }) {
   const [loading, setLoading] = useState(false)
 
   const handleOrder = async (side) => {
-    const qty = parseInt(quantity, 10)
-    if (!qty || qty <= 0) return
+    const qty = parseFloat(quantity)
+    if (!Number.isFinite(qty) || qty <= 0) return
     setLoading(true)
     try {
-      await apiPost('/portfolio/position', { symbol, quantity: qty, side })
+      await apiPost('/portfolio/position', { symbol, quantity: Number(qty), side })
       setQuantity('')
       onOrder?.()
     } catch (err) {
@@ -39,8 +39,9 @@ export function OrderPanel({ symbol, price, onOrder }) {
             className="order-input"
             placeholder="Quantity"
             value={quantity}
-            onChange={(e) => setQuantity(e.target.value.replace(/\D/g, ''))}
-            min="1"
+            onChange={(e) => setQuantity(e.target.value)}
+            min="0"
+            step="0.1"
           />
           <div className="order-buttons">
             <button

@@ -35,11 +35,7 @@ class MyStrategy(Strategy):
 
         # Golden cross: short crosses above long -> buy
         if not in_position and prev_short <= prev_long and short > long_val:
-            # Size using estimated fill (accounts for slippage + commission).
-            buy_fill = self.portfolio.estimate_fill_price('buy', close)
-            if buy_fill <= 0:
-                return
-            shares = int(self.portfolio.cash * 0.95 / buy_fill)
+            shares = self.portfolio.max_affordable_buy(close, reserve_fraction=0.05)
             if shares > 0:
                 self.portfolio.enter_position_long(self.stock, shares, index)
 
@@ -285,38 +281,104 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
                 {apiKeyOpen && (
                   <div className="strategy-api-key-content">
                     <div className="strategy-api-section">
-                      <strong>Strategy methods</strong> (override these)
+                      <strong>Class structure</strong>
                       <ul>
-                        <li><code>start(candle=None)</code> — called once at the beginning</li>
-                        <li><code>update(open, high, low, close, index=None)</code> — called for each candle</li>
-                        <li><code>end(candle=None)</code> — called once at the end</li>
+                        <li>Define one class inheriting from <code>Strategy</code></li>
+                        <li><code>def __init__(self, stock, portfolio, my_param=10):</code> — first two args required; custom params need defaults</li>
+                        <li>Call <code>super().__init__()</code>; base sets <code>self.stock</code>, <code>self.portfolio</code></li>
                       </ul>
                     </div>
                     <div className="strategy-api-section">
-                      <strong>self.stock</strong>
+                      <strong>Lifecycle methods</strong> (override these)
                       <ul>
-                        <li><code>stock.symbol</code> — ticker symbol</li>
-                        <li><code>stock.price(index)</code> — close price at index</li>
-                        <li><code>stock.get_candle(index)</code> — (open, high, low, close)</li>
-                        <li><code>stock.rsi(period=14)</code> — RSI series (list)</li>
-                        <li><code>stock.sma(period=14)</code> — SMA series</li>
-                        <li><code>stock.ema(period=14)</code> — EMA series</li>
-                        <li><code>stock.macd(26, 12)</code> — MACD series</li>
-                        <li><code>stock.bollinger_bands(20, 2)</code> — (upper, middle, lower) tuples</li>
-                        <li><code>stock.atr(period=14)</code> — ATR series</li>
-                        <li><code>stock.adx(period=14)</code> — ADX series</li>
+                        <li><code>start(self, candle=None)</code> — called once at backtest start</li>
+                        <li><code>update(self, open, high, low, close, index=None)</code> — called every bar. <code>open, high, low, close</code> = OHLC for current bar. <code>index</code> = bar index (0-based). Only use data at or before <code>index</code>.</li>
+                        <li><code>end(self, candle=None)</code> — called once at backtest end</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>self.stock</strong> — price & candles
+                      <ul>
+                        <li><code>stock.symbol</code> — ticker string</li>
+                        <li><code>stock.price(index)</code> → float, close at bar <code>index</code></li>
+                        <li><code>stock.get_candle(index)</code> → (open, high, low, close) tuple</li>
+                        <li><code>stock.to_iloc(index)</code> → int, convert date string or int to bar index</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>self.stock</strong> — indicators (return lists; index with <code>[index]</code>; check <code>index &lt; len(series)</code> and <code>series[index] is not None</code>)
+                      <ul>
+                        <li><code>stock.sma(period=14)</code> — Simple Moving Average</li>
+                        <li><code>stock.ema(period=14)</code> — Exponential Moving Average</li>
+                        <li><code>stock.rsi(period=14)</code> — RSI (0–100)</li>
+                        <li><code>stock.atr(period=14)</code> — Average True Range</li>
+                        <li><code>stock.adx(period=14)</code> — ADX</li>
+                        <li><code>stock.macd(long_period=26, short_period=12)</code> — MACD line</li>
+                        <li><code>stock.bollinger_bands(period=20, dev=2)</code> → list of (upper, middle, lower) tuples per bar</li>
+                        <li><code>stock.tr(index)</code> → float, True Range at bar</li>
+                        <li><code>stock.dm()</code> → (plus_dm_list, minus_dm_list)</li>
                       </ul>
                     </div>
                     <div className="strategy-api-section">
                       <strong>self.portfolio</strong>
                       <ul>
-                        <li><code>portfolio.cash</code> — available cash</li>
-                        <li><code>portfolio.get_value(index)</code> — total portfolio value</li>
-                        <li><code>portfolio.estimate_fill_price('buy'|'sell', raw_price)</code> — estimate fill w/ slippage+commission</li>
-                        <li><code>portfolio.enter_position_long(stock, qty, index)</code></li>
-                        <li><code>portfolio.enter_position_short(stock, qty, index)</code></li>
-                        <li><code>portfolio.exit_position(stock, qty, index)</code></li>
+                        <li><code>portfolio.cash</code> — available cash (float)</li>
+                        <li><code>portfolio.get_value(index)</code> — total equity at bar</li>
+                        <li><code>portfolio.get_position(stock)</code> — dict with <code>quantity</code>, <code>avg_price</code>, etc., or None</li>
+                        <li><code>portfolio.stocks</code> — list of (stock, qty) tuples for current positions</li>
+                        <li><code>portfolio.estimate_fill_price('buy', price)</code> or <code>('sell', price)</code> — fill price with slippage</li>
+                        <li><code>portfolio.estimate_buy_cost(qty, price)</code> — total cost (fill + commission); use for cash checks</li>
+                        <li><code>portfolio.max_affordable_buy(price, reserve_fraction=0.05)</code> — max qty affordable with 95% of cash</li>
+                        <li><code>portfolio.enter_position_long(stock, qty, index)</code> — open or add to long</li>
+                        <li><code>portfolio.enter_position_short(stock, qty, index)</code> — open or add to short</li>
+                        <li><code>portfolio.exit_position(stock, qty, index)</code> — close qty shares; qty must ≤ position size</li>
                       </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Forbidden</strong> (lookahead blocked)
+                      <ul>
+                        <li>No <code>stock.df</code>, <code>stock.df.iloc</code>, <code>.loc</code>, <code>.iat</code>, <code>.at</code>, <code>.values</code>, <code>.index</code></li>
+                        <li>Use <code>stock.price(index)</code>, <code>stock.get_candle(index)</code>, <code>stock.sma(14)[index]</code> instead</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Forbidden Python</strong>
+                      <ul>
+                        <li>No <code>import</code> or <code>from ... import</code></li>
+                        <li>No <code>global</code>, <code>nonlocal</code></li>
+                        <li>No <code>eval</code>, <code>exec</code>, <code>open</code>, <code>input</code>, <code>getattr</code>, <code>setattr</code>, <code>type</code>, <code>isinstance</code>, <code>hasattr</code>, <code>repr</code>, <code>format</code>, <code>bytes</code>, <code>bytearray</code></li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Allowed builtins</strong>
+                      <ul>
+                        <li><code>range</code>, <code>len</code>, <code>min</code>, <code>max</code>, <code>sum</code>, <code>abs</code>, <code>round</code>, <code>int</code>, <code>float</code>, <code>str</code>, <code>bool</code>, <code>list</code>, <code>dict</code>, <code>set</code>, <code>tuple</code>, <code>enumerate</code>, <code>zip</code>, <code>next</code>, <code>any</code>, <code>all</code>, <code>sorted</code>, <code>super</code>, <code>Exception</code>, <code>ValueError</code>, <code>TypeError</code>, <code>print</code></li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Common mistakes</strong>
+                      <ul>
+                        <li>Index out of range: always check <code>index &lt; len(series)</code> and <code>series[index] is not None</code> before using indicators</li>
+                        <li>Always pass <code>index</code> to <code>enter_position_long</code>, <code>enter_position_short</code>, <code>exit_position</code></li>
+                        <li>ATR/RSI can be 0 or None — guard divisions with checks</li>
+                        <li><code>exit_position(stock, qty, index)</code> — qty must not exceed position size</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Limits</strong>
+                      <ul>
+                        <li>Code max 50,000 chars; init timeout 30s; strategy name unique and non-empty</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
+                      <strong>Example</strong> — ATR-based entry with bounds check:
+                      <pre className="strategy-api-example">{`atr_series = self.stock.atr(14)
+if index < len(atr_series) and atr_series[index]:
+    atr = atr_series[index]
+    qty = int(self.portfolio.get_value(index) * 0.01 / atr)
+    if qty > 0 and self.position is None:
+        self.portfolio.enter_position_long(self.stock, qty, index)
+        self.position = qty`}</pre>
                     </div>
                   </div>
                 )}

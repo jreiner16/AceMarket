@@ -2528,7 +2528,7 @@ textarea:focus {
   padding: 0 var(--pad) var(--pad);
   font-size: 11px;
   color: var(--text-muted);
-  max-height: 200px;
+  max-height: 360px;
   overflow-y: auto;
 }
 
@@ -2561,6 +2561,18 @@ textarea:focus {
   padding: 1px 4px;
   background: var(--bg-panel);
   border-radius: 2px;
+}
+
+.strategy-api-example {
+  margin: 6px 0 0;
+  padding: 8px;
+  font-size: 10px;
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .strategy-footer {

@@ -30,8 +30,8 @@ export function PortfolioPanel({ refresh }) {
 
   const handleCloseConfirm = async () => {
     if (!closingSymbol) return
-    const qty = parseInt(closeQty, 10)
-    if (!qty || qty <= 0) {
+    const qty = parseFloat(closeQty)
+    if (!Number.isFinite(qty) || qty <= 0) {
       setCloseError('Enter a positive quantity')
       return
     }
@@ -41,7 +41,7 @@ export function PortfolioPanel({ refresh }) {
     }
     setCloseError(null)
     try {
-      await apiPost('/portfolio/position/close', { symbol: closingSymbol.symbol, quantity: qty })
+      await apiPost('/portfolio/position/close', { symbol: closingSymbol.symbol, quantity: Number(qty) })
       handleCloseCancel()
       load()
     } catch (err) {
@@ -100,9 +100,10 @@ export function PortfolioPanel({ refresh }) {
                   type="number"
                   className="position-close-input"
                   value={closeQty}
-                  onChange={(e) => setCloseQty(e.target.value.replace(/\D/g, ''))}
-                  min={1}
+                  onChange={(e) => setCloseQty(e.target.value)}
+                  min={0}
                   max={p.quantity}
+                  step="0.1"
                   placeholder="Qty"
                 />
                 <button type="button" className="position-close-btn confirm" onClick={handleCloseConfirm}>

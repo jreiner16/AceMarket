@@ -1,10 +1,10 @@
 class Portfolio:
     def __init__(self):
-        self._positions = {}  # symbol -> {"stock": Stock, "quantity": int (signed), "avg_price": float, "realized_pnl": float}
+        self._positions = {}  # symbol -> {"stock": Stock, "quantity": float (signed), "avg_price": float, "realized_pnl": float}
         self._realized = {}  # symbol -> realized pnl across all closed lots/trades
         self.cash = 0
         self.slippage = 0  # decimal, e.g. 0.001 = 0.1%
-        self.slippage_bps = 0  # basis points (overrides slippage if > 0), e.g. 10 = 10 bps
+        self.share_min_pct = 10  # min increment as % of share: 100=whole, 10=0.1, 1=0.01
         self.commission = 0  # decimal pct (0.01 = 1%)
         self.commission_per_order = 0.0  # $ per order
         self.commission_per_share = 0.0  # $ per share
@@ -55,12 +55,16 @@ class Portfolio:
     def positions(self):
         return list(self._positions.values())
 
+    def _round_qty(self, qty: float) -> float:
+        """Round quantity to nearest share_min_pct increment (e.g. 10% = 0.1 share)."""
+        inc = float(self.share_min_pct or 100) / 100.0
+        if inc >= 1:
+            return float(round(qty))
+        return round(round(float(qty) / inc) * inc, 2)
+
     def _slippage_factor(self, side: str) -> float:
-        """Slippage as decimal (bps converted if slippage_bps set)."""
-        if self.slippage_bps and float(self.slippage_bps) > 0:
-            slip = float(self.slippage_bps) / 10000.0
-        else:
-            slip = float(self.slippage)
+        """Slippage as decimal (e.g. 0.001 = 0.1%)."""
+        slip = float(self.slippage or 0)
         if slip < 0 or slip >= 1:
             raise ValueError("Slippage must be in [0, 1)")
         return slip if side == "buy" else -slip
@@ -68,7 +72,7 @@ class Portfolio:
     def _fill_price(self, side, price):
         """
         Fill price with slippage only. Commission is applied separately via _compute_commission.
-        Slippage: adverse move in bps (if slippage_bps) or decimal (e.g. 0.001 = 0.1%).
+        Slippage: adverse move as decimal (e.g. 0.001 = 0.1%).
         buy:  fill = price * (1 + slippage)
         sell: fill = price * (1 - slippage)
         """
@@ -80,7 +84,7 @@ class Portfolio:
             return price * (1 - slip)
         raise ValueError("Invalid side")
 
-    def _compute_commission(self, quantity: int, notional: float) -> float:
+    def _compute_commission(self, quantity: float, notional: float) -> float:
         """
         Commission: per-order + per-share, or pct of notional if those are zero.
         """
@@ -88,7 +92,7 @@ class Portfolio:
         per_share = float(self.commission_per_share or 0)
         pct = float(self.commission or 0)
         if per_order > 0 or per_share > 0:
-            return per_order + per_share * abs(int(quantity))
+            return per_order + per_share * abs(float(quantity))
         if pct > 0:
             return notional * pct
         return 0.0
@@ -97,12 +101,50 @@ class Portfolio:
         """Public helper for strategy sizing: side in {'buy','sell'}."""
         return self._fill_price(side, raw_price)
 
+    def estimate_buy_cost(self, quantity, raw_price):
+        """Total cost to buy (fill price + commission). Use for cash checks before enter_position_long."""
+        qty = self._round_qty(float(quantity))
+        if qty <= 0:
+            return 0.0
+        fill = self._fill_price("buy", raw_price)
+        notional = fill * qty
+        commission = self._compute_commission(qty, notional)
+        return notional + commission
+
+    def estimate_sell_proceeds(self, quantity, raw_price):
+        """Net proceeds from sell (fill price - commission). Use for sizing before exit_position."""
+        qty = self._round_qty(float(quantity))
+        if qty <= 0:
+            return 0.0
+        fill = self._fill_price("sell", raw_price)
+        notional = fill * qty
+        commission = self._compute_commission(qty, notional)
+        return notional - commission
+
+    def max_affordable_buy(self, raw_price, reserve_fraction=0.05):
+        """Max quantity affordable to buy with (1 - reserve_fraction) of cash. Returns 0 if none."""
+        fill = self._fill_price("buy", raw_price)
+        if fill <= 0:
+            return 0.0
+        max_cost = float(self.cash) * (1.0 - reserve_fraction)
+        inc = max(0.001, float(self.share_min_pct or 100) / 100.0)
+        qty = self._round_qty(max_cost / fill)
+        if qty <= 0:
+            return 0.0
+        cost = self.estimate_buy_cost(qty, raw_price)
+        while cost > max_cost and qty > 0:
+            qty = self._round_qty(max(0, qty - inc))
+            if qty <= 0:
+                return 0.0
+            cost = self.estimate_buy_cost(qty, raw_price)
+        return qty if cost <= max_cost else 0.0
+
     def _positions_view(self):
         # symbol -> (stock, qty)
         out = {}
         for sym, p in self._positions.items():
             try:
-                out[sym] = (p["stock"], int(p["quantity"]))
+                out[sym] = (p["stock"], float(p["quantity"]))
             except Exception:
                 continue
         return out
@@ -110,7 +152,7 @@ class Portfolio:
     def get_short_market_value(self, index=None):
         short_mv = 0.0
         for stock, quantity in self.stocks:
-            q = int(quantity)
+            q = float(quantity)
             if q < 0:
                 short_mv += float(stock.price(index)) * abs(q)
         return float(short_mv)
@@ -133,8 +175,8 @@ class Portfolio:
         for _, (stock, qty) in positions_after.items():
             px = float(stock.price(index))
             equity += px * float(qty)
-            if int(qty) < 0:
-                short_mv += px * abs(int(qty))
+            if float(qty) < 0:
+                short_mv += px * abs(float(qty))
         short_reserve = float(self.short_margin_requirement) * float(short_mv) if short_mv > 0 else 0.0
         cash_reserve = float(self.min_cash_reserve_pct) * max(0.0, equity) if self.min_cash_reserve_pct else 0.0
         return float(short_reserve + cash_reserve)
@@ -142,7 +184,7 @@ class Portfolio:
     def _check_order_common(self, stock, side, quantity, trade_index, raw_price, fill_price, trade_value, cost_cash_change):
         if quantity <= 0:
             raise ValueError("Quantity must be positive")
-        if self.max_order_qty and int(quantity) > int(self.max_order_qty):
+        if self.max_order_qty and float(quantity) > float(self.max_order_qty):
             raise ValueError(f"Order qty exceeds max_order_qty ({self.max_order_qty})")
 
         if self.min_trade_value and float(trade_value) < float(self.min_trade_value):
@@ -171,16 +213,14 @@ class Portfolio:
 
         # Finally: cash check for buys/cover
         if float(cost_cash_change) < 0:
-            # negative cash change means we're spending cash
             need = abs(float(cost_cash_change))
             if float(self.cash) + 1e-9 < need:
                 raise ValueError("Not enough cash to enter position")
 
         # Margin / buying power check (projected after-trade state)
         positions_after = self._positions_view()
-        symbol = stock.symbol.upper()
-        cur_qty = int(positions_after.get(symbol, (stock, 0))[1])
-        delta_qty = int(quantity) if side == "buy" else -int(quantity)
+        cur_qty = float(positions_after.get(symbol, (stock, 0))[1])
+        delta_qty = float(quantity) if side == "buy" else -float(quantity)
         post_qty = cur_qty + delta_qty
         if post_qty == 0:
             positions_after.pop(symbol, None)
@@ -194,6 +234,7 @@ class Portfolio:
             raise ValueError("Insufficient buying power (margin)")
 
     def enter_position_long(self, stock, quantity, index=None):
+        quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
         trade_index, trade_time = self._trade_meta(stock, index)
@@ -219,7 +260,7 @@ class Portfolio:
         if pos is None:
             self._positions[symbol] = {"stock": stock, "quantity": quantity, "avg_price": float(price), "realized_pnl": float(self._realized.get(symbol, 0.0))}
         else:
-            qty0 = int(pos["quantity"])
+            qty0 = float(pos["quantity"])
             avg0 = float(pos["avg_price"])
             if qty0 >= 0:
                 new_qty = qty0 + quantity
@@ -231,7 +272,7 @@ class Portfolio:
                 cover_qty = min(quantity, abs(qty0))
                 realized = (avg0 - price) * cover_qty
                 remaining = quantity - cover_qty
-                new_qty = qty0 + cover_qty  # qty0 is negative
+                new_qty = qty0 + cover_qty
                 if new_qty == 0 and remaining == 0:
                     self._positions.pop(symbol, None)
                 else:
@@ -266,6 +307,7 @@ class Portfolio:
         self._append_equity(self.get_value(trade_index))
 
     def enter_position_short(self, stock, quantity, index=None):
+        quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
         trade_index, trade_time = self._trade_meta(stock, index)
@@ -293,7 +335,7 @@ class Portfolio:
         if pos is None:
             self._positions[symbol] = {"stock": stock, "quantity": -quantity, "avg_price": float(price), "realized_pnl": float(self._realized.get(symbol, 0.0))}
         else:
-            qty0 = int(pos["quantity"])
+            qty0 = float(pos["quantity"])
             avg0 = float(pos["avg_price"])
             if qty0 <= 0:
                 new_qty = qty0 - quantity
@@ -342,6 +384,7 @@ class Portfolio:
         self._append_equity(self.get_value(trade_index))
 
     def exit_position(self, stock, quantity, index=None):
+        quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
         trade_index, trade_time = self._trade_meta(stock, index)
@@ -351,7 +394,7 @@ class Portfolio:
         pos = self._positions.get(symbol)
         if pos is None:
             raise ValueError("Stock not found in portfolio")
-        qty0 = int(pos["quantity"])
+        qty0 = float(pos["quantity"])
         if quantity > abs(qty0):
             raise ValueError("Quantity exceeds position size")
         avg0 = float(pos["avg_price"])
@@ -399,7 +442,7 @@ class Portfolio:
         value = self.cash
         for stock, quantity in self.stocks:
             idx = index if index is not None else stock.df.index.size - 1
-            value += float(stock.price(idx)) * int(quantity)
+            value += float(stock.price(idx)) * float(quantity)
         return value
 
     def add_cash(self, amount):
@@ -416,7 +459,7 @@ class Portfolio:
             sym = (p.get("symbol") or "").upper()
             if not sym:
                 continue
-            qty = int(p.get("quantity", 0))
+            qty = float(p.get("quantity", 0))
             if qty == 0:
                 continue
             try:
@@ -433,8 +476,8 @@ class Portfolio:
     def set_slippage(self, slippage):
         self.slippage = slippage
 
-    def set_slippage_bps(self, bps):
-        self.slippage_bps = bps
+    def set_share_min_pct(self, pct: float):
+        self.share_min_pct = max(0.0, float(pct))
 
     def set_commission(self, commission):
         self.commission = commission

@@ -12,6 +12,7 @@ import { StrategyPanel } from './StrategyPanel'
 import { Watchlist } from './Watchlist'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
+import { ConfirmDialog } from './ConfirmDialog'
 import './App.css'
 
 const MIN_LEFT = 180
@@ -41,6 +42,7 @@ function App() {
   const [chartShowSma, setChartShowSma] = useState(false)
   const [chartShowEma, setChartShowEma] = useState(false)
   const [chartShowRsi, setChartShowRsi] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   useEffect(() => {
     return subscribe((entries) => {
@@ -111,7 +113,7 @@ function App() {
           <button type="button" className="header-settings-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
             {"\u2699"}
           </button>
-          <button type="button" className="header-signout" onClick={signOut} title="Sign out">
+          <button type="button" className="header-signout" onClick={() => setConfirmSignOut(true)} title="Sign out">
             Sign out
           </button>
         </div>
@@ -306,6 +308,17 @@ function App() {
         onClose={() => setSettingsOpen(false)}
         onClearHistory={() => setPortfolioRefresh((r) => r + 1)}
         user={user}
+      />
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="Sign out"
+        message="Are you sure you want to sign out?"
+        confirmLabel="Sign out"
+        onConfirm={() => {
+          setConfirmSignOut(false)
+          signOut()
+        }}
+        onCancel={() => setConfirmSignOut(false)}
       />
     </div>
   )

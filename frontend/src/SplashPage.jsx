@@ -120,7 +120,7 @@ export function SplashPage() {
             <li>View real-time charts and candlesticks</li>
             <li>Paper trade with configurable slippage and commission</li>
             <li>Write and run Python strategy backtests</li>
-            <li>Track portfolio performance (long and short)</li>
+            <li>Track portfolio performance export data</li>
           </ul>
         </div>
 

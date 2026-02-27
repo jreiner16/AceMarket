@@ -92,6 +92,7 @@ DEFAULT_SETTINGS = {
     "initial_cash": 100000,
     "slippage": 0.0,
     "commission": 0.0,
+    "share_min_pct": 10,
     "allow_short": True,
     "max_positions": 0,
     "max_position_pct": 0.0,
@@ -110,9 +111,13 @@ def get_settings(user_id: str) -> dict:
         cur.execute("SELECT settings_json FROM settings WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
     if row:
-        data = {**DEFAULT_SETTINGS, **json.loads(row["settings_json"])}
+        stored = json.loads(row["settings_json"])
+        data = {**DEFAULT_SETTINGS, **stored}
         if "watchlist" not in data or not isinstance(data.get("watchlist"), list):
             data["watchlist"] = DEFAULT_WATCHLIST.copy()
+        # Migrate share_precision -> share_min_pct only if user never set share_min_pct
+        if "share_min_pct" not in stored and "share_precision" in stored:
+            data["share_min_pct"] = [100, 10, 1][min(int(stored["share_precision"]), 2)]
         return data
     out = DEFAULT_SETTINGS.copy()
     out["watchlist"] = DEFAULT_WATCHLIST.copy()
@@ -120,10 +125,14 @@ def get_settings(user_id: str) -> dict:
 
 
 def save_settings(user_id: str, settings: dict):
+    """Save settings. Merge with defaults so we never drop keys (e.g. share_min_pct)."""
+    merged = {**DEFAULT_SETTINGS, **settings}
+    if "watchlist" not in merged or not isinstance(merged.get("watchlist"), list):
+        merged["watchlist"] = DEFAULT_WATCHLIST.copy()
     with get_cursor() as cur:
         cur.execute(
             "INSERT OR REPLACE INTO settings (user_id, settings_json, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-            (user_id, json.dumps(settings)),
+            (user_id, json.dumps(merged)),
         )
 
 
@@ -155,7 +164,7 @@ def save_portfolio_state(user_id: str, cash: float, positions: list, trade_log: 
         if not symbol:
             continue
         symbol = str(symbol).upper()
-        qty = int(p.get("quantity", 0))
+        qty = float(p.get("quantity", 0))
         if qty == 0:
             continue
         positions_data.append({

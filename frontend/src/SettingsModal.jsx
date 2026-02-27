@@ -7,7 +7,6 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
   const [tab, setTab] = useState('order')
   const [initialCash, setInitialCash] = useState('100000')
   const [slippage, setSlippage] = useState('0')
-  const [slippageBps, setSlippageBps] = useState('0')
   const [commission, setCommission] = useState('0')
   const [commissionPerOrder, setCommissionPerOrder] = useState('0')
   const [commissionPerShare, setCommissionPerShare] = useState('0')
@@ -18,6 +17,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
   const [minTradeValue, setMinTradeValue] = useState('0')
   const [maxTradeValue, setMaxTradeValue] = useState('0')
   const [maxOrderQty, setMaxOrderQty] = useState('0')
+  const [shareMinPct, setShareMinPct] = useState('10')
   const [shortMarginRequirement, setShortMarginRequirement] = useState('1.5')
   const [autoLiquidateEnd, setAutoLiquidateEnd] = useState(true)
   const [blockLookahead, setBlockLookahead] = useState(true)
@@ -30,7 +30,6 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
         .then((s) => {
           setInitialCash(String(s.initial_cash ?? 100000))
           setSlippage(String(s.slippage ?? 0))
-          setSlippageBps(String(s.slippage_bps ?? 0))
           setCommission(String(s.commission ?? 0))
           setCommissionPerOrder(String(s.commission_per_order ?? 0))
           setCommissionPerShare(String(s.commission_per_share ?? 0))
@@ -41,6 +40,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
           setMinTradeValue(String(s.min_trade_value ?? 0))
           setMaxTradeValue(String(s.max_trade_value ?? 0))
           setMaxOrderQty(String(s.max_order_qty ?? 0))
+          setShareMinPct(String(s.share_min_pct ?? (s.share_precision != null ? [100, 10, 1][Math.min(s.share_precision, 2)] : 10)))
           setShortMarginRequirement(String(s.short_margin_requirement ?? 1.5))
           setAutoLiquidateEnd(Boolean(s.auto_liquidate_end ?? true))
           setBlockLookahead(Boolean(s.block_lookahead ?? true))
@@ -51,7 +51,6 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
   const handleSave = async () => {
     try {
       const ic = Number(initialCash)
-      const s = Number(slippage)
       const c = Number(commission)
       const mp = Number.parseInt(maxPositions, 10)
       const mpp = Number(maxPositionPct)
@@ -61,13 +60,12 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
       const moq = Number.parseInt(maxOrderQty, 10)
       const smr = Number(shortMarginRequirement)
 
-      const sbps = Number(slippageBps)
+      const s = Number(slippage)
       const cpo = Number(commissionPerOrder)
       const cps = Number(commissionPerShare)
       await apiPut('/settings', {
         initial_cash: Number.isFinite(ic) ? ic : 100000,
         slippage: Number.isFinite(s) ? s : 0,
-        slippage_bps: Number.isFinite(sbps) ? sbps : 0,
         commission: Number.isFinite(c) ? c : 0,
         commission_per_order: Number.isFinite(cpo) ? cpo : 0,
         commission_per_share: Number.isFinite(cps) ? cps : 0,
@@ -78,6 +76,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
         min_trade_value: Number.isFinite(minTv) ? minTv : 0,
         max_trade_value: Number.isFinite(maxTv) ? maxTv : 0,
         max_order_qty: Number.isFinite(moq) ? moq : 0,
+        share_min_pct: Math.max(1, Math.min(100, Number(shareMinPct) || 10)),
         short_margin_requirement: Number.isFinite(smr) ? smr : 1.5,
         auto_liquidate_end: Boolean(autoLiquidateEnd),
         block_lookahead: Boolean(blockLookahead),
@@ -110,11 +109,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
                 <legend>Fees</legend>
                 <div className="settings-row">
                   <label className="settings-label">Slippage (decimal, e.g. 0.001 = 0.1%)</label>
-                  <input type="number" className="settings-input" value={slippage} onChange={(e) => setSlippage(e.target.value)} min="0" max="0.999" step="0.001" />
-                </div>
-                <div className="settings-row">
-                  <label className="settings-label">Slippage (bps, overrides above if &gt;0)</label>
-                  <input type="number" className="settings-input" value={slippageBps} onChange={(e) => setSlippageBps(e.target.value)} min="0" step="1" placeholder="e.g. 10" />
+                  <input type="number" className="settings-input" value={slippage} onChange={(e) => setSlippage(e.target.value)} min="0" max="0.999" step="0.001" placeholder="e.g. 0.001" />
                 </div>
                 <div className="settings-row">
                   <label className="settings-label">Commission % of notional (0–1)</label>
@@ -143,6 +138,10 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
                 <div className="settings-row">
                   <label className="settings-label">Max Order Qty (0=unlimited)</label>
                   <input type="number" className="settings-input" value={maxOrderQty} onChange={(e) => setMaxOrderQty(e.target.value)} min="0" step="1" />
+                </div>
+                <div className="settings-row">
+                  <label className="settings-label">Min share increment (%) — 100=whole, 10=0.1, 1=0.01</label>
+                  <input type="number" className="settings-input" value={shareMinPct} onChange={(e) => setShareMinPct(e.target.value)} min="1" max="100" step="1" placeholder="10" />
                 </div>
               </fieldset>
             </div>

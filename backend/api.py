@@ -158,7 +158,7 @@ def get_portfolio(user_id: str) -> Portfolio:
         port.add_cash(settings["initial_cash"])
 
     port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-    port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
+    port.set_share_min_pct(settings.get("share_min_pct", 10))
     port.set_commission(settings.get("commission", 0.0) or 0.0)
     port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
     port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
@@ -226,7 +226,7 @@ class Candle(BaseModel):
 
 class Position(BaseModel):
     symbol: str
-    quantity: int
+    quantity: float
     side: str
     avg_price: float
     current_price: float
@@ -237,19 +237,19 @@ class Position(BaseModel):
 
 class OpenPositionRequest(BaseModel):
     symbol: str
-    quantity: int
+    quantity: float
     side: str
 
 
 class ClosePositionRequest(BaseModel):
     symbol: str
-    quantity: int
+    quantity: float
 
 
 class SettingsUpdate(BaseModel):
     initial_cash: Optional[float] = None
     slippage: Optional[float] = None
-    slippage_bps: Optional[float] = None
+    share_min_pct: Optional[float] = None
     commission: Optional[float] = None
     commission_per_order: Optional[float] = None
     commission_per_share: Optional[float] = None
@@ -389,7 +389,7 @@ def get_portfolio_state(user_id: str = Depends(verify_token)) -> dict:
     positions = []
     for p in port.positions():
         stock = p["stock"]
-        quantity = int(p["quantity"])
+        quantity = float(p["quantity"])
         symbol = stock.symbol
         price = float(stock.price())
         avg_price = float(p.get("avg_price") or 0.0)
@@ -611,7 +611,7 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             port = Portfolio()
             port.add_cash(cash_per_symbol)
             port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-            port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
+            port.set_share_min_pct(settings.get("share_min_pct", 10))
             port.set_commission(settings.get("commission", 0.0) or 0.0)
             port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
             port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
@@ -640,7 +640,7 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
                 port = Portfolio()
                 port.add_cash(cash_per_symbol)
                 port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-                port.set_slippage_bps(settings.get("slippage_bps", 0) or 0)
+                port.set_share_min_pct(settings.get("share_min_pct", 10))
                 port.set_commission(settings.get("commission", 0.0) or 0.0)
                 port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
                 port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
@@ -656,7 +656,7 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             if settings.get("auto_liquidate_end", True):
                 pos = port.get_position(stock)
                 if pos is not None:
-                    qty0 = int(pos.get("quantity") or 0)
+                    qty0 = float(pos.get("quantity") or 0)
                     if qty0 != 0:
                         end_iloc = stock.to_iloc(req.end_date)
                         port.exit_position(stock, abs(qty0), end_iloc)
@@ -781,7 +781,7 @@ def _reconstruct_equity_curve_from_trades(trade_log: list, initial_cash: float, 
     cash = float(initial_cash)
     position = 0
     for i, t in enumerate(trade_log):
-        qty = int(t.get("quantity") or 0)
+        qty = float(t.get("quantity") or 0)
         price = float(t.get("price") or t.get("fill_price") or 0)
         typ = (t.get("type") or "").lower()
         if typ == "long":
@@ -840,14 +840,15 @@ def update_settings_endpoint(upd: SettingsUpdate, user_id: str = Depends(verify_
             port.add_cash(diff)
         save_portfolio(user_id, port, settings)
 
+    if upd.share_min_pct is not None:
+        pct = float(upd.share_min_pct)
+        if pct <= 0 or pct > 100:
+            raise HTTPException(status_code=400, detail="share_min_pct must be 1–100 (e.g. 10 = 0.1 share min)")
+        settings["share_min_pct"] = pct
     if upd.slippage is not None:
         if upd.slippage < 0 or upd.slippage >= 1:
             raise HTTPException(status_code=400, detail="slippage must be in [0, 1) as decimal (e.g. 0.001 = 0.1%%)")
         settings["slippage"] = float(upd.slippage)
-    if upd.slippage_bps is not None:
-        if upd.slippage_bps < 0 or upd.slippage_bps > 10000:
-            raise HTTPException(status_code=400, detail="slippage_bps must be in [0, 10000]")
-        settings["slippage_bps"] = float(upd.slippage_bps)
     if upd.commission is not None:
         if upd.commission < 0 or upd.commission >= 1:
             raise HTTPException(status_code=400, detail="commission must be in [0, 1) as decimal (e.g. 0.001 = 0.1%%)")
