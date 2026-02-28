@@ -25,27 +25,34 @@ class Stock:
         symbol: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        df: Optional[pd.DataFrame] = None,
     ):
         self.symbol = symbol.upper().strip()
         self._tr_cache: Optional[pd.Series] = None
 
-        if not end_date:
-            end_date = datetime.now().strftime("%Y-%m-%d")
-        if not start_date:
-            start_date = (datetime.now() - timedelta(days=365 * 30)).strftime("%Y-%m-%d")
+        if df is not None:
+            self.df = df.copy()
+            self.df.index = pd.to_datetime(self.df.index)
+            self.df = self.df.sort_index()
+        else:
+            if not end_date:
+                end_date = datetime.now().strftime("%Y-%m-%d")
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365 * 30)).strftime("%Y-%m-%d")
 
-        self.df = get_ohlc(self.symbol, start_date, end_date)
-        if self.df.empty:
-            logger.warning("No data for %s", self.symbol)
-            return
+            self.df = get_ohlc(self.symbol, start_date, end_date)
+            if self.df.empty:
+                logger.warning("No data for %s", self.symbol)
+                return
 
-        self.df.index = pd.to_datetime(self.df.index)
-        self.df = self.df.sort_index()
+            self.df.index = pd.to_datetime(self.df.index)
+            self.df = self.df.sort_index()
+            logger.info("Loaded data for %s (%d rows)", self.symbol, len(self.df))
+
         for col in ["Open", "High", "Low", "Close"]:
             if col in self.df.columns:
                 self.df[col] = pd.to_numeric(self.df[col], errors="coerce")
         self.df = self.df.dropna(subset=["Open", "High", "Low", "Close"])
-        logger.info("Loaded data for %s (%d rows)", self.symbol, len(self.df))
 
     # Indicators
     def rsi(self, period: int = 14) -> List[Optional[float]]:

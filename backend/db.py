@@ -264,9 +264,14 @@ def get_runs(user_id: str, limit: int = 25) -> list[dict]:
         rows = cur.fetchall()
     out = []
     for r in rows:
-        metrics = json.loads(r["metrics_json"] or "{}")
+        try:
+            metrics = json.loads(r["metrics_json"] or "{}")
+            portfolio = json.loads(r["portfolio_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            metrics, portfolio = {}, {}
         equity = metrics.get("equity", {})
         trades = metrics.get("trades", {})
+        run_type = portfolio.get("run_type", "backtest")
         out.append({
             "id": r["id"],
             "created_at": r["created_at"],
@@ -275,6 +280,7 @@ def get_runs(user_id: str, limit: int = 25) -> list[dict]:
             "symbols": json.loads(r["symbols_json"] or "[]"),
             "start_date": r["start_date"],
             "end_date": r["end_date"],
+            "run_type": run_type,
             "start_value": equity.get("start_value"),
             "end_value": equity.get("end_value"),
             "pnl": equity.get("pnl"),
@@ -283,6 +289,7 @@ def get_runs(user_id: str, limit: int = 25) -> list[dict]:
             "trades": trades.get("trades"),
             "exits": trades.get("exits"),
             "win_rate_pct": trades.get("win_rate_pct"),
+            "prob_profit_pct": portfolio.get("prob_profit_pct"),
         })
     return out
 

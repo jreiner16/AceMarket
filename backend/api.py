@@ -287,6 +287,13 @@ class RunStrategyRequest(BaseModel):
     train_pct: Optional[float] = None  # 0 < x < 1: walk-forward, train on first x, test on rest
 
 
+class MonteCarloRequest(BaseModel):
+    strategy_id: int
+    symbol: str
+    n_sims: int = 100
+    horizon: int = 252  # trading days to simulate
+
+
 # --- Endpoints ---
 
 @app.get("/health")
@@ -767,9 +774,83 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
     return {"ok": True, "results": results, "run_id": run_id}
 
 
+@app.post("/api/v1/strategies/montecarlo")
+def montecarlo_endpoint(req: MonteCarloRequest, user_id: str = Depends(verify_token)):
+    """Monte Carlo: bootstrap sample from stock's historical returns, run strategy on synthetic paths."""
+    _check_rate_limit(f"strategy:{user_id}", RATE_LIMIT_STRATEGY_WINDOW_SEC, RATE_LIMIT_STRATEGY_MAX)
+
+    strat = db.get_strategy(user_id, req.strategy_id)
+    if not strat:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    symbol = _validate_symbol(req.symbol)
+    n_sims = max(10, min(500, req.n_sims))
+    horizon = max(21, min(504, req.horizon))  # 1 month to 2 years
+
+    stock = get_stock(symbol)
+    if stock.df.empty:
+        raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+
+    settings = db.get_settings(user_id)
+    block_lookahead = bool(settings.get("block_lookahead", True))
+
+    try:
+        from montecarlo import run_montecarlo
+        result = run_montecarlo(
+            stock=stock,
+            strategy_code=strat["code"],
+            settings=settings,
+            n_sims=n_sims,
+            horizon=horizon,
+            block_lookahead=block_lookahead,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    initial = result["initial_cash"]
+    mean_val = result["mean"]
+    pnl = mean_val - initial
+    total_return_pct = (pnl / initial * 100) if initial else 0
+
+    run_data = {
+        "strategy_id": req.strategy_id,
+        "strategy": strat["name"] + " (MC)",
+        "symbols": [symbol],
+        "start_date": "Monte Carlo",
+        "end_date": f"{horizon}d",
+        "results": [{"symbol": symbol, "start_value": initial, "end_value": mean_val, "pnl": pnl}],
+        "portfolio": {
+            "run_type": "montecarlo",
+            "initial_cash": initial,
+            "value": mean_val,
+            "fan_data": result.get("fan_data", []),
+            "percentiles": result.get("percentiles", {}),
+            "n_sims": result.get("n_success", 0),
+            "n_errors": result.get("n_errors", 0),
+            "horizon": horizon,
+            "prob_profit_pct": result.get("prob_profit_pct", 0),
+        },
+        "metrics": {
+            "equity": {
+                "start_value": initial,
+                "end_value": mean_val,
+                "pnl": pnl,
+                "total_return_pct": total_return_pct,
+            },
+            "trades": {"win_rate_pct": result.get("prob_profit_pct", 0), "trades": 0, "exits": 0},
+        },
+    }
+    run_id = db.save_run(user_id, run_data)
+    logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
+
+    return {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result}
+
+
 @app.get("/api/v1/runs")
 def list_runs(user_id: str = Depends(verify_token)):
     summaries = db.get_runs(user_id, limit=MAX_RUNS_PER_USER)
+    mc_count = sum(1 for s in summaries if s.get("run_type") == "montecarlo")
+    logger.info("list_runs: user=%s total=%d montecarlo=%d", user_id, len(summaries), mc_count)
     return {"runs": summaries}
 
 

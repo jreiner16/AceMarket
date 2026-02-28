@@ -5,6 +5,7 @@ import { highlight, languages } from 'prismjs'
 import 'prismjs/components/prism-python'
 import { ResizeHandle } from './ResizeHandle'
 import { ConfirmDialog } from './ConfirmDialog'
+import { FanChart } from './FanChart'
 import { apiGet, apiPost, apiPut, apiDelete } from './apiClient'
 
 const DEFAULT_CODE = `# Example strategy: EMA/SMA Crossover Strategy (slippage/commission-aware sizing)
@@ -48,19 +49,24 @@ class MyStrategy(Strategy):
         pass
 `
 
-export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
+export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, compact }) {
   const [strategies, setStrategies] = useState([])
   const [selected, setSelected] = useState(null)
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [runModalOpen, setRunModalOpen] = useState(false)
+  const [runMode, setRunMode] = useState('backtest')  // 'backtest' | 'montecarlo'
   const [runSymbols, setRunSymbols] = useState([])
+  const [runMonteCarloSymbol, setRunMonteCarloSymbol] = useState('')
+  const [runMonteCarloSims, setRunMonteCarloSims] = useState('100')
+  const [runMonteCarloHorizon, setRunMonteCarloHorizon] = useState('252')
   const [stocksDropdownOpen, setStocksDropdownOpen] = useState(false)
   const [runStart, setRunStart] = useState('2023-01-01')
   const [runEnd, setRunEnd] = useState('2024-01-01')
   const [runTrainPct, setRunTrainPct] = useState('')  // e.g. 0.7 for 70% train, 30% OOS test
   const [runResults, setRunResults] = useState(null)
+  const [monteCarloResults, setMonteCarloResults] = useState(null)
   const [running, setRunning] = useState(false)
   const [executingSymbols, setExecutingSymbols] = useState(new Set())
   const [filesWidth, setFilesWidth] = useState(120)
@@ -161,6 +167,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
     setRunModalOpen(true)
     setRunSymbols([])
     setRunResults(null)
+    setMonteCarloResults(null)
     setStocksDropdownOpen(false)
   }
 
@@ -172,6 +179,36 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
   }
 
   const handleExecute = async () => {
+    if (runMode === 'montecarlo') {
+      const sym = runMonteCarloSymbol?.trim().toUpperCase()
+      if (!sym) {
+        console.error('Strategy: Select a stock for Monte Carlo')
+        return
+      }
+      setRunning(true)
+      setMonteCarloResults(null)
+      setExecutingSymbols(new Set([sym]))
+      try {
+        const n = Math.max(10, Math.min(500, parseInt(runMonteCarloSims, 10) || 100))
+        const h = Math.max(21, Math.min(504, parseInt(runMonteCarloHorizon, 10) || 252))
+        const data = await apiPost('/strategies/montecarlo', {
+          strategy_id: selected,
+          symbol: sym,
+          n_sims: n,
+          horizon: h,
+        })
+        setMonteCarloResults(data)
+        onRefresh?.()
+        if (data?.run_id != null) onRunCompleted?.(data.run_id)
+      } catch (e) {
+        setMonteCarloResults({ error: e.detail || e.message })
+      } finally {
+        setRunning(false)
+        setExecutingSymbols(new Set())
+      }
+      return
+    }
+
     if (runSymbols.length === 0) {
       console.error('Strategy: Select at least one stock')
       return
@@ -193,6 +230,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, compact }) {
       const data = await apiPost('/strategies/run', body)
       setRunResults(data.results || [])
       onRefresh?.()
+      if (data?.run_id != null) onRunCompleted?.(data.run_id)
     } catch (e) {
       setRunResults([{ error: e.detail || e.message }])
     } finally {
@@ -397,63 +435,192 @@ if index < len(atr_series) and atr_series[index]:
             </div>
             <div className="strategy-run-modal-body">
               <div className="strategy-run-modal-section">
-                <label>Stocks</label>
-                {stocks.length === 0 ? (
-                  <div className="strategy-run-empty">Add stocks to watchlist first</div>
-                ) : (
-                  <div className="strategy-run-stocks-dropdown" ref={stocksDropdownRef}>
-                    <button
-                      type="button"
-                      className="strategy-run-stocks-trigger"
-                      onClick={() => setStocksDropdownOpen((o) => !o)}
-                    >
-                      {runSymbols.length === 0
-                        ? 'Select stocks…'
-                        : runSymbols.length === 1
-                          ? runSymbols[0]
-                          : `${runSymbols.length} stocks selected`}
-                    </button>
-                    {stocksDropdownOpen && (
-                      <div className="strategy-run-stocks-list">
-                        {stocks.map((sym) => (
-                          <label key={sym} className={`strategy-run-stock ${executingSymbols.has(sym) ? 'disabled' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={runSymbols.includes(sym)}
-                              onChange={() => toggleRunSymbol(sym)}
-                              disabled={executingSymbols.has(sym)}
-                            />
-                            {sym}
-                          </label>
-                        ))}
+                <label>Mode</label>
+                <div className="strategy-run-mode-toggle">
+                  <button
+                    type="button"
+                    className={`strategy-run-mode-btn ${runMode === 'backtest' ? 'active' : ''}`}
+                    onClick={() => { setRunMode('backtest'); setRunResults(null); setMonteCarloResults(null); }}
+                  >
+                    Backtest (historical)
+                  </button>
+                  <button
+                    type="button"
+                    className={`strategy-run-mode-btn ${runMode === 'montecarlo' ? 'active' : ''}`}
+                    onClick={() => { setRunMode('montecarlo'); setRunResults(null); setMonteCarloResults(null); }}
+                  >
+                    Monte Carlo (future)
+                  </button>
+                </div>
+                <span className="strategy-run-hint">
+                  {runMode === 'backtest' ? 'Run on past data' : 'Sample from historical returns, simulate many future paths'}
+                </span>
+              </div>
+
+              {runMode === 'montecarlo' ? (
+                <>
+                  <div className="strategy-run-modal-section">
+                    <label>Stock</label>
+                    {stocks.length === 0 ? (
+                      <div className="strategy-run-empty">Add stocks to watchlist first</div>
+                    ) : (
+                      <div className="strategy-run-stocks-dropdown" ref={stocksDropdownRef}>
+                        <button
+                          type="button"
+                          className="strategy-run-stocks-trigger"
+                          onClick={() => setStocksDropdownOpen((o) => !o)}
+                          disabled={running}
+                        >
+                          {runMonteCarloSymbol || 'Select stock…'}
+                        </button>
+                        {stocksDropdownOpen && (
+                          <div className="strategy-run-stocks-list">
+                            {stocks.map((sym) => (
+                              <div
+                                key={sym}
+                                className={`strategy-run-stock ${executingSymbols.has(sym) ? 'disabled' : ''} ${runMonteCarloSymbol === sym ? 'selected' : ''}`}
+                                onClick={() => {
+                                  if (!executingSymbols.has(sym)) {
+                                    setRunMonteCarloSymbol(sym)
+                                    setStocksDropdownOpen(false)
+                                  }
+                                }}
+                              >
+                                {sym}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-              <div className="strategy-run-modal-section">
-                <label>Window</label>
-                <div className="strategy-run-dates">
-                  <input type="date" value={runStart} onChange={(e) => setRunStart(e.target.value)} />
-                  <span>to</span>
-                  <input type="date" value={runEnd} onChange={(e) => setRunEnd(e.target.value)} />
+                  <div className="strategy-run-modal-section">
+                    <label>Simulations</label>
+                    <input
+                      type="number"
+                      className="strategy-run-train-pct"
+                      value={runMonteCarloSims}
+                      onChange={(e) => setRunMonteCarloSims(e.target.value)}
+                      min="10"
+                      max="500"
+                      placeholder="100"
+                    />
+                    <span className="strategy-run-hint">10–500 paths (default 100)</span>
+                  </div>
+                  <div className="strategy-run-modal-section">
+                    <label>Horizon (trading days)</label>
+                    <input
+                      type="number"
+                      className="strategy-run-train-pct"
+                      value={runMonteCarloHorizon}
+                      onChange={(e) => setRunMonteCarloHorizon(e.target.value)}
+                      min="21"
+                      max="504"
+                      placeholder="252"
+                    />
+                    <span className="strategy-run-hint">~1 year = 252 days</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="strategy-run-modal-section">
+                    <label>Stocks</label>
+                    {stocks.length === 0 ? (
+                      <div className="strategy-run-empty">Add stocks to watchlist first</div>
+                    ) : (
+                      <div className="strategy-run-stocks-dropdown" ref={stocksDropdownRef}>
+                        <button
+                          type="button"
+                          className="strategy-run-stocks-trigger"
+                          onClick={() => setStocksDropdownOpen((o) => !o)}
+                        >
+                          {runSymbols.length === 0
+                            ? 'Select stocks…'
+                            : runSymbols.length === 1
+                              ? runSymbols[0]
+                              : `${runSymbols.length} stocks selected`}
+                        </button>
+                        {stocksDropdownOpen && (
+                          <div className="strategy-run-stocks-list">
+                            {stocks.map((sym) => (
+                              <label key={sym} className={`strategy-run-stock ${executingSymbols.has(sym) ? 'disabled' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={runSymbols.includes(sym)}
+                                  onChange={() => toggleRunSymbol(sym)}
+                                  disabled={executingSymbols.has(sym)}
+                                />
+                                {sym}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="strategy-run-modal-section">
+                    <label>Window</label>
+                    <div className="strategy-run-dates">
+                      <input type="date" value={runStart} onChange={(e) => setRunStart(e.target.value)} />
+                      <span>to</span>
+                      <input type="date" value={runEnd} onChange={(e) => setRunEnd(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="strategy-run-modal-section">
+                    <label>Walk-forward train % (0–1, optional)</label>
+                    <input
+                      type="number"
+                      className="strategy-run-train-pct"
+                      value={runTrainPct}
+                      onChange={(e) => setRunTrainPct(e.target.value)}
+                      placeholder="e.g. 0.7"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                    />
+                    <span className="strategy-run-hint">Split into train/test for OOS validation</span>
+                  </div>
+                </>
+              )}
+
+              {monteCarloResults && !monteCarloResults.error && (
+                <div className="strategy-run-results strategy-run-montecarlo-results">
+                  {monteCarloResults.fan_data?.length > 1 && (
+                    <div className="strategy-run-fan-chart-wrap">
+                      <FanChart fanData={monteCarloResults.fan_data} initialCash={monteCarloResults.initial_cash} />
+                    </div>
+                  )}
+                  <div className="strategy-run-result-row">
+                    <span><strong>Prob. profitable:</strong></span>
+                    <span>{monteCarloResults.prob_profit_pct?.toFixed(1)}%</span>
+                  </div>
+                  <div className="strategy-run-result-row">
+                    <span><strong>Mean end value:</strong></span>
+                    <span>${monteCarloResults.mean?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="strategy-run-result-row">
+                    <span><strong>5th %ile:</strong></span>
+                    <span>${monteCarloResults.percentiles?.p5?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="strategy-run-result-row">
+                    <span><strong>50th %ile:</strong></span>
+                    <span>${monteCarloResults.percentiles?.p50?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="strategy-run-result-row">
+                    <span><strong>95th %ile:</strong></span>
+                    <span>${monteCarloResults.percentiles?.p95?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="strategy-run-result-row strategy-run-montecarlo-meta">
+                    <span>{monteCarloResults.n_success} paths, {monteCarloResults.horizon} days each</span>
+                  </div>
                 </div>
-              </div>
-              <div className="strategy-run-modal-section">
-                <label>Walk-forward train % (0–1, optional)</label>
-                <input
-                  type="number"
-                  className="strategy-run-train-pct"
-                  value={runTrainPct}
-                  onChange={(e) => setRunTrainPct(e.target.value)}
-                  placeholder="e.g. 0.7"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                />
-                <span className="strategy-run-hint">Split into train/test for OOS validation</span>
-              </div>
-              {runResults && (
+              )}
+              {monteCarloResults?.error && (
+                <div className="strategy-run-results">
+                  <div className="strategy-run-result-row"><span className="error">{monteCarloResults.error}</span></div>
+                </div>
+              )}
+              {runResults && runMode === 'backtest' && (
                 <div className="strategy-run-results">
                   {runResults.map((r, i) => (
                     <div key={i} className="strategy-run-result-row">
@@ -481,7 +648,7 @@ if index < len(atr_series) and atr_series[index]:
                 type="button"
                 className="strategy-btn primary"
                 onClick={handleExecute}
-                disabled={running || runSymbols.length === 0}
+                disabled={running || (runMode === 'backtest' ? runSymbols.length === 0 : !runMonteCarloSymbol?.trim())}
               >
                 {running ? 'Running…' : 'Execute'}
               </button>

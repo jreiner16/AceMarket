@@ -34,6 +34,7 @@ function App() {
   const [rightWidth, setRightWidth] = useState(320)
   const [reportHeight, setReportHeight] = useState(180)
   const [reportTab, setReportTab] = useState('report') // 'report' | 'console'
+  const [focusRunId, setFocusRunId] = useState(null)
   const [rightTab, setRightTab] = useState('orders') // 'orders' | 'strategies'
   const [reportMaximized, setReportMaximized] = useState(false)
   const [strategyMaximized, setStrategyMaximized] = useState(false)
@@ -218,6 +219,8 @@ function App() {
             {reportTab === 'report' ? (
               <ReportPanel
                 refresh={portfolioRefresh}
+                focusRunId={focusRunId}
+                onFocusRunConsumed={() => setFocusRunId(null)}
                 onMatchFrame={setChartDateRange}
               />
             ) : (
@@ -270,6 +273,7 @@ function App() {
                 watchlist={watchlist}
                 refresh={portfolioRefresh}
                 onRefresh={() => setPortfolioRefresh((r) => r + 1)}
+                onRunCompleted={(id) => { setFocusRunId(id); setReportTab('report'); }}
                 compact
               />
             </div>
@@ -295,6 +299,7 @@ function App() {
               watchlist={watchlist}
               refresh={portfolioRefresh}
               onRefresh={() => setPortfolioRefresh((r) => r + 1)}
+              onRunCompleted={(id) => { setFocusRunId(id); setReportTab('report'); }}
               compact
             />
           </div>
