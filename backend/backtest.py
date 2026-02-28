@@ -1,8 +1,7 @@
+"""Execute user backtest strategy code"""
 import ast
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
-from stock import Stock
-from portfolio import Portfolio
 from strategy import Strategy
 
 from config import STRATEGY_CODE_MAX_LEN

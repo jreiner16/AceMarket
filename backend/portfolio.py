@@ -1,3 +1,5 @@
+"""Portfolio tracking, metrics and position management"""
+
 class Portfolio:
     def __init__(self):
         self._positions = {}  # symbol -> {"stock": Stock, "quantity": float (signed), "avg_price": float, "realized_pnl": float}
@@ -34,7 +36,6 @@ class Portfolio:
                 i = stock.df.index.size - 1
             i = max(0, min(i, stock.df.index.size - 1))
             t = stock.df.index[i]
-            # pandas Timestamp -> ISO date
             ts = t.isoformat()[:10]
         except Exception:
             ts = None
@@ -72,9 +73,7 @@ class Portfolio:
     def _fill_price(self, side, price):
         """
         Fill price with slippage only. Commission is applied separately via _compute_commission.
-        Slippage: adverse move as decimal (e.g. 0.001 = 0.1%).
-        buy:  fill = price * (1 + slippage)
-        sell: fill = price * (1 - slippage)
+        Slippage is always an adverse move. 
         """
         price = float(price)
         slip = self._slippage_factor(side)
@@ -211,13 +210,13 @@ class Portfolio:
                 if cash_after < reserve - 1e-9:
                     raise ValueError("Trade would violate cash reserve")
 
-        # Finally: cash check for buys/cover
+        # Cash check for buys/cover
         if float(cost_cash_change) < 0:
             need = abs(float(cost_cash_change))
             if float(self.cash) + 1e-9 < need:
                 raise ValueError("Not enough cash to enter position")
 
-        # Margin / buying power check (projected after-trade state)
+        # Margin / buying power check
         positions_after = self._positions_view()
         cur_qty = float(positions_after.get(symbol, (stock, 0))[1])
         delta_qty = float(quantity) if side == "buy" else -float(quantity)

@@ -1,6 +1,6 @@
 // SplashPage -- landing page for the website if you aren't signed in
 import { useState } from 'react'
-import { useAuth } from './authContext'
+import { useAuth } from './useAuth'
 import './SplashPage.css'
 
 export function SplashPage() {

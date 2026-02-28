@@ -1,3 +1,4 @@
+# Python cache / virtual environment
 __pycache__/
 *.py[cod]
 *.pyo
@@ -8,13 +9,37 @@ __pycache__/
 venv/
 ENV/
 
+# OSX
 .DS_Store
 
+# frontend dependencies, output and environment
 frontend/node_modules/
 frontend/dist/
+frontend/dist-ssr/
 frontend/.vite/
 frontend/.env
+frontend/.env.local
 
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# editor / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# backend cache, database and secrets
 backend/__pycache__/
 backend/acemarket.db
 backend/.env

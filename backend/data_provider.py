@@ -1,4 +1,4 @@
-"""Fetch market data via yfinance. If you switch API provider, this is the only class you'll need to change (hopefully)"""
+"""Fetch market data via yfinance. If you want to switch API provider, you should be able to get away with just changing this file."""
 from __future__ import annotations
 
 import logging

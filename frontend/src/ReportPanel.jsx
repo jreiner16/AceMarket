@@ -138,6 +138,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
   const [mode, setMode] = useState('live') // 'live' | 'run'
   const [runId, setRunId] = useState('')
   const [runDetail, setRunDetail] = useState(null)
+  const effectiveRunId = mode === 'run' && !runId && runs.length ? String(runs[0].id) : runId
   const [tab, setTab] = useState('overview') // overview | performance | trades | raw
 
   const [tradeSymbol, setTradeSymbol] = useState('ALL')
@@ -160,27 +161,16 @@ export function ReportPanel({ refresh, onMatchFrame }) {
   }, [refresh])
 
   useEffect(() => {
-    if (mode !== 'run') return
-    if (!runId && runs.length) {
-      setRunId(String(runs[0].id))
-    }
-  }, [mode, runId, runs])
-
-  useEffect(() => {
-    if (mode !== 'run') {
-      setRunDetail(null)
-      return
-    }
-    if (!runId) {
-      setRunDetail(null)
-      return
-    }
-    apiGet(`/runs/${runId}`)
+    if (mode !== 'run' || !effectiveRunId) return
+    apiGet(`/runs/${effectiveRunId}`)
       .then(setRunDetail)
       .catch(() => setRunDetail({ run: null, error: 'Failed to load run' }))
-  }, [mode, runId])
+  }, [mode, effectiveRunId])
 
-  const view = useMemo(() => pickView(portfolio, runDetail?.run), [portfolio, runDetail])
+  const view = useMemo(
+    () => pickView(portfolio, mode === 'run' ? runDetail?.run : null),
+    [portfolio, mode, runDetail]
+  )
 
   const allSymbols = useMemo(() => {
     const set = new Set()
@@ -258,7 +248,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
       { label: 'realized_pnl', value: (t) => t.realized_pnl ?? '' },
     ]
     const csv = toCsv(filteredTrades, cols)
-    const name = view.kind === 'run' ? `run-${runId}-trades.csv` : 'portfolio-trades.csv'
+    const name = view.kind === 'run' ? `run-${effectiveRunId}-trades.csv` : 'portfolio-trades.csv'
     downloadText(name, csv, 'text/csv')
   }
 
@@ -306,7 +296,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
             Runs
           </label>
           {mode === 'run' && (
-            <select value={runId} onChange={(e) => setRunId(e.target.value)} disabled={!runs.length}>
+            <select value={effectiveRunId} onChange={(e) => setRunId(e.target.value)} disabled={!runs.length}>
               {!runs.length && <option value="">No saved runs</option>}
               {runs.map((r) => (
                 <option key={r.id} value={String(r.id)}>
@@ -444,7 +434,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                     </thead>
                     <tbody>
                       {runs.map((r) => (
-                        <tr key={r.id} className={String(r.id) === String(runId) ? 'active' : ''}>
+                        <tr key={r.id} className={String(r.id) === String(effectiveRunId) ? 'active' : ''}>
                           <td>
                             <button type="button" className="report-legacy-link" onClick={() => { setMode('run'); setRunId(String(r.id)); }}>
                               #{r.id}
@@ -594,7 +584,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
               <div className="report-legacy-raw-actions">
                 <button
                   type="button"
-                  onClick={() => downloadText(view.kind === 'run' ? `run-${runId}.json` : 'portfolio.json', JSON.stringify(view.kind === 'run' ? view.run : portfolio, null, 2), 'application/json')}
+                  onClick={() => downloadText(view.kind === 'run' ? `run-${effectiveRunId}.json` : 'portfolio.json', JSON.stringify(view.kind === 'run' ? view.run : portfolio, null, 2), 'application/json')}
                 >
                   Download JSON
                 </button>

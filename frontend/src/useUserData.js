@@ -13,14 +13,18 @@ function loadFromLocal(uid) {
       const data = JSON.parse(raw)
       if (Array.isArray(data.watchlist) && data.watchlist.length > 0) return data.watchlist
     }
-  } catch {}
+  } catch {
+    // localStorage may be unavailable (private mode, etc.)
+  }
   return null
 }
 
 function saveToLocal(uid, wl) {
   try {
     localStorage.setItem(LOCAL_KEY(uid), JSON.stringify({ watchlist: wl }))
-  } catch {}
+  } catch {
+    // localStorage may be full or unavailable
+  }
 }
 
 export function useUserData(user) {
@@ -31,11 +35,14 @@ export function useUserData(user) {
 
   useEffect(() => {
     if (!user) {
-      setWatchlist(DEFAULT_WATCHLIST)
-      setLoading(false)
+      queueMicrotask(() => {
+        setWatchlist(DEFAULT_WATCHLIST)
+        setLoading(false)
+      })
       return
     }
-    setLoading(true)
+    // Sync loading state when starting fetch (legitimate effect pattern)
+    setLoading(true) // eslint-disable-line react-hooks/set-state-in-effect
     const uid = user.uid
     const local = loadFromLocal(uid)
     apiGet('/watchlist')
@@ -56,11 +63,11 @@ export function useUserData(user) {
         }
         setLoading(false)
       })
-  }, [user?.uid])
+  }, [user?.uid]) // eslint-disable-line react-hooks/exhaustive-deps -- user.uid is the intended trigger
 
   const saveWatchlist = useCallback((wl) => {
     if (!user) return
-    apiPut('/watchlist', { watchlist: wl }).catch(() => {})
+    apiPut('/watchlist', { watchlist: wl }).catch(() => { })
   }, [user])
 
   const setWatchlistAndSave = useCallback(

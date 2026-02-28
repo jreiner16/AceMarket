@@ -2,8 +2,6 @@
 
 A full-stack paper trading and Python strategy IDE backtester.
 
-MIT — see [LICENSE](LICENSE) for details.
-
 ## Dev startup
 
 - In one terminal: `cd backend && uvicorn api:app`
@@ -16,5 +14,9 @@ cd backend && pip install -U yfinance
 
 ## Documentation
 
-- **[Strategy Rules](docs/STRATEGY_RULES.md)** — Exact rules for writing strategy code (what you can/cannot use, data access, lifecycle)
-- **[API Reference](docs/API.md)** — Full API endpoint documentation with request/response formats
+- **[Strategy Rules](docs/STRATEGY_RULES.md)** — exact rules for writing a strategy in the IDE backtester.
+- **[API Reference](docs/API.md)** — API endpoint documentation and explanation
+
+## License
+BSD 3-Clause — see [LICENSE](LICENSE) for details. 
+TLDR: use freely but attribution is required. 

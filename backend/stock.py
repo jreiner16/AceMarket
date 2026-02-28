@@ -74,7 +74,6 @@ class Stock:
         long_period: int = 26,
         short_period: int = 12,
     ) -> List[Optional[float]]:
-        """MACD line. Returns None for warmup."""
         short_ema = self.df["Close"].ewm(span=short_period, adjust=False).mean()
         long_ema = self.df["Close"].ewm(span=long_period, adjust=False).mean()
         macd_series = short_ema - long_ema
@@ -185,7 +184,7 @@ class Stock:
 
     # Data access
     def to_iloc(self, index: Optional[Union[int, str]] = None) -> int:
-        # convert given index to ineger location
+        """convert given index to integer location index"""
         if index is None:
             return self.df.index.size - 1
         if isinstance(index, (int, np.integer)):

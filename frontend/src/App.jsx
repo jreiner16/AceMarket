@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { subscribe } from './consoleStore'
-import { useAuth } from './authContext'
+import { useAuth } from './useAuth'
 import { useUserData } from './useUserData'
 import { SplashPage } from './SplashPage'
 import { StockChart } from './StockChart'
@@ -52,16 +52,14 @@ function App() {
 
   const handleSelectStock = useCallback((symbol) => {
     setSelectedSymbol(symbol)
-    if (!watchlist.includes(symbol)) {
-      setWatchlist((w) => [...w, symbol].slice(-30))
-    }
-  }, [watchlist])
+    setWatchlist((w) => (w.includes(symbol) ? w : [...w, symbol].slice(-30)))
+  }, [setWatchlist])
 
   const handleAddToWatchlist = useCallback((symbol) => {
-    if (symbol && !watchlist.includes(symbol)) {
-      setWatchlist((w) => [...w, symbol].slice(-30))
+    if (symbol) {
+      setWatchlist((w) => (w.includes(symbol) ? w : [...w, symbol].slice(-30)))
     }
-  }, [watchlist])
+  }, [setWatchlist])
 
   const handleRemoveFromWatchlist = useCallback((symbol) => {
     const newList = watchlist.filter((s) => s !== symbol)
@@ -69,7 +67,7 @@ function App() {
     if (selectedSymbol === symbol) {
       setSelectedSymbol(newList[0] || null)
     }
-  }, [watchlist, selectedSymbol])
+  }, [watchlist, selectedSymbol, setWatchlist, setSelectedSymbol])
 
   const handleOrder = useCallback(() => {
     setPortfolioRefresh((r) => r + 1)

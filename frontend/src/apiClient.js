@@ -1,9 +1,8 @@
-/**
- * API client loader
- */
+/* apiClient --API loader */
 import { auth } from './firebase'
 
-const API_BASE = '/api/v1'
+// Production: set VITE_API_BASE to full API URL (e.g. https://api.yoursite.com/api/v1)
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '') || '/api/v1'
 
 async function getAuthHeaders() {
   const user = auth.currentUser

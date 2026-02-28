@@ -1,6 +1,5 @@
-"""SQLite persistence for portfolios, strategies, runs, and settings."""
+"""SQLite storage so portfolios, strategies, runs, and settings persiste across sessions"""
 import json
-import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -8,7 +7,6 @@ from typing import Optional
 
 from config import DB_PATH
 
-logger = logging.getLogger(__name__)
 _local = threading.local()
 
 

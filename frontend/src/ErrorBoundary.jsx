@@ -1,4 +1,4 @@
-// ErrorBoundary -- catch React render errors and display a fallback UI just in case
+// ErrorBoundary -- catch render errors and display a fallback UI just in case
 import { Component } from 'react'
 
 export class ErrorBoundary extends Component {

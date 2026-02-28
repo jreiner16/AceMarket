@@ -1,6 +1,4 @@
-/**
- * Global console log store. Intercepts console.log/warn/error and stores entries.
- */
+// consoleStore -- frontend console log entries/storage
 const listeners = new Set()
 let entries = []
 const MAX_ENTRIES = 500

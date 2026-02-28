@@ -29,9 +29,11 @@ export function Watchlist({ items, selectedSymbol, onSelect, onAdd, onRemove }) 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (addInput.length < 2) {
-      setSearchResults([])
-      setSearchOpen(false)
-      setSearchLoading(false)
+      queueMicrotask(() => {
+        setSearchResults([])
+        setSearchOpen(false)
+        setSearchLoading(false)
+      })
       return
     }
     debounceRef.current = setTimeout(() => {

@@ -25,7 +25,6 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
 
   useEffect(() => {
     if (open) {
-      setTab('order')
       apiGet('/settings')
         .then((s) => {
           setInitialCash(String(s.initial_cash ?? 100000))
@@ -91,7 +90,7 @@ export function SettingsModal({ open, onClose, onClearHistory, user }) {
 
   return (
     <div className="settings-modal" onClick={onClose}>
-      <div className="settings-content" onClick={(e) => e.stopPropagation()}>
+      <div className="settings-content" onClick={(e) => e.stopPropagation()} key={open}>
         <div className="settings-header">
           <div className="settings-title">Settings</div>
           <div className="settings-tabs">

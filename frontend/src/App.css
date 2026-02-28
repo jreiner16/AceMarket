@@ -1,5 +1,5 @@
+/* App -- global styles */
 :root {
-  /* Intentionally plain, corporate palette */
   color-scheme: light;
   --bg-dark: #c0c0c0;
   --bg-panel: #dcdcdc;

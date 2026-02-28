@@ -1,4 +1,4 @@
-"""AceMarket API — FastAPI server with auth, persistence, and rate limiting"""
+"""AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
 import logging
 import time
 from typing import Optional

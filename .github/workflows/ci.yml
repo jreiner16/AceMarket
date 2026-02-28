@@ -1,3 +1,4 @@
+# Catch any failures before push/merge
 name: CI
 
 on:
