@@ -154,7 +154,8 @@ class Backtest:
         self.strategy = strategy
         self.portfolio = portfolio
 
-    def run(self, start_date, end_date):
+    def run(self, start_date, end_date, on_bar=None):
+        """Run backtest. If on_bar(index, value) is provided, called at end of each bar."""
         start_iloc = self.strategy.stock.to_iloc(start_date)
         end_iloc = self.strategy.stock.to_iloc(end_date)
         if start_iloc > end_iloc:
@@ -163,4 +164,6 @@ class Backtest:
         for candle in range(start_iloc, end_iloc + 1):
             open, high, low, close = self.strategy.stock.get_candle(candle)
             self.strategy.update(open, high, low, close, candle)
+            if on_bar is not None:
+                on_bar(candle, float(self.portfolio.get_value(candle)))
         self.strategy.end(self.strategy.stock.get_candle(end_date))

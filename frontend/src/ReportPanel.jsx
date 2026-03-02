@@ -1,6 +1,7 @@
-// ReportPanel -- display of portfolio and backtesting metrics/reports
-import { useEffect, useMemo, useState } from 'react'
+// ReportPanel -- display of portfolio and backtesting metrics/reports as well as Monte Carlo simulation results
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
+import { FanChart } from './FanChart'
 import { apiGet, apiDelete } from './apiClient'
 
 function fmtMoney(n) {
@@ -107,32 +108,37 @@ function DrawdownChart({ equityMetrics, height = 60 }) {
 
 function pickView(portfolio, run) {
   if (run?.portfolio) {
+    const isMC = run.portfolio.run_type === 'montecarlo'
     return {
       kind: 'run',
-      title: 'Backtest Run',
+      runType: isMC ? 'montecarlo' : 'backtest',
+      title: isMC ? 'Monte Carlo Run' : 'Backtest Run',
       value: run.portfolio.value,
       cash: null,
       initialCash: run.portfolio.initial_cash,
       tradeLog: run.portfolio.trade_log || [],
       equityCurve: run.portfolio.equity_curve || [],
+      fanData: run.portfolio.fan_data || [],
       metrics: run.metrics || null,
       run,
     }
   }
   return {
     kind: 'live',
+    runType: null,
     title: 'Live Portfolio',
     value: portfolio?.value,
     cash: portfolio?.cash,
     initialCash: portfolio?.initial_cash,
     tradeLog: portfolio?.trade_log || [],
     equityCurve: portfolio?.equity_curve || [],
+    fanData: [],
     metrics: portfolio?.metrics || null,
     run: null,
   }
 }
 
-export function ReportPanel({ refresh, onMatchFrame }) {
+export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFrame }) {
   const [portfolio, setPortfolio] = useState(null)
   const [runs, setRuns] = useState([])
   const [mode, setMode] = useState('live') // 'live' | 'run'
@@ -150,15 +156,28 @@ export function ReportPanel({ refresh, onMatchFrame }) {
   const [sortKey, setSortKey] = useState('index')
   const [sortDir, setSortDir] = useState('desc')
 
+  const fetchRuns = useCallback(() => {
+    apiGet('/runs')
+      .then((d) => setRuns(d.runs || []))
+      .catch(() => setRuns([]))
+  }, [])
+
   useEffect(() => {
     apiGet('/portfolio')
       .then(setPortfolio)
       .catch(() => setPortfolio(null))
 
-    apiGet('/runs')
-      .then((d) => setRuns(d.runs || []))
-      .catch(() => setRuns([]))
-  }, [refresh])
+    fetchRuns()
+  }, [refresh, fetchRuns])
+
+  useEffect(() => {
+    if (focusRunId != null && String(focusRunId).trim()) {
+      setMode('run')
+      setRunId(String(focusRunId))
+      fetchRuns() // refetch so new run appears in list
+      onFocusRunConsumed?.()
+    }
+  }, [focusRunId, fetchRuns])
 
   useEffect(() => {
     if (mode !== 'run' || !effectiveRunId) return
@@ -296,11 +315,14 @@ export function ReportPanel({ refresh, onMatchFrame }) {
             Runs
           </label>
           {mode === 'run' && (
+            <button type="button" onClick={fetchRuns} title="Refresh runs list">↻</button>
+          )}
+          {mode === 'run' && (
             <select value={effectiveRunId} onChange={(e) => setRunId(e.target.value)} disabled={!runs.length}>
               {!runs.length && <option value="">No saved runs</option>}
               {runs.map((r) => (
                 <option key={r.id} value={String(r.id)}>
-                  #{r.id} {r.strategy} ({(r.symbols || []).join(', ') || '—'})
+                  #{r.id} {r.strategy} ({(r.symbols || []).join(', ') || '—'}) {r.run_type === 'montecarlo' ? '• MC' : ''}
                 </option>
               ))}
             </select>
@@ -310,7 +332,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
               Clear
             </button>
           )}
-          {view.kind === 'run' && view.run?.start_date && view.run?.end_date && onMatchFrame && (
+          {view.kind === 'run' && view.runType === 'backtest' && view.run?.start_date && view.run?.end_date && onMatchFrame && (
             <button type="button" className="report-match-frame-btn" onClick={() => onMatchFrame({ startDate: view.run.start_date, endDate: view.run.end_date })}>
               Match frame
             </button>
@@ -336,12 +358,21 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                   <tbody>
                     <tr><th>Run</th><td>#{view.run.id}</td><th>Strategy</th><td>{view.run.strategy}</td></tr>
                     <tr><th>Symbols</th><td colSpan={3}>{(view.run.symbols || []).join(', ') || '—'}</td></tr>
-                    <tr><th>Window</th><td colSpan={3}>{view.run.start_date} to {view.run.end_date}</td></tr>
-                    <tr><th>Slippage</th><td>{view.run.settings?.slippage ?? '—'}</td><th>Commission</th><td>{view.run.settings?.commission ?? '—'}</td></tr>
-                    <tr><th>Allow Short</th><td>{String(Boolean(view.run.settings?.allow_short))}</td><th>Auto-liquidate</th><td>{String(Boolean(view.run.settings?.auto_liquidate_end ?? true))}</td></tr>
-                    <tr><th>Max Positions</th><td>{view.run.settings?.max_positions ?? 0}</td><th>Max Pos %</th><td>{view.run.settings?.max_position_pct ?? 0}</td></tr>
-                    <tr><th>Cash Reserve %</th><td>{view.run.settings?.min_cash_reserve_pct ?? 0}</td><th>Min Trade $</th><td>{view.run.settings?.min_trade_value ?? 0}</td></tr>
-                    <tr><th>Max Trade $</th><td>{view.run.settings?.max_trade_value ?? 0}</td><th>Max Qty</th><td>{view.run.settings?.max_order_qty ?? 0}</td></tr>
+                    {view.runType === 'montecarlo' ? (
+                      <>
+                        <tr><th>Type</th><td>Monte Carlo</td><th>Horizon</th><td>{view.run.portfolio?.horizon ?? '—'} days</td></tr>
+                        <tr><th>Simulations</th><td>{view.run.portfolio?.n_sims ?? '—'}</td><th>Prob. Profitable</th><td>{Number(view.run.portfolio?.prob_profit_pct ?? 0).toFixed(1)}%</td></tr>
+                      </>
+                    ) : (
+                      <>
+                        <tr><th>Window</th><td colSpan={3}>{view.run.start_date} to {view.run.end_date}</td></tr>
+                        <tr><th>Slippage</th><td>{view.run.settings?.slippage ?? '—'}</td><th>Commission</th><td>{view.run.settings?.commission ?? '—'}</td></tr>
+                        <tr><th>Allow Short</th><td>{String(Boolean(view.run.settings?.allow_short))}</td><th>Auto-liquidate</th><td>{String(Boolean(view.run.settings?.auto_liquidate_end ?? true))}</td></tr>
+                        <tr><th>Max Positions</th><td>{view.run.settings?.max_positions ?? 0}</td><th>Max Pos %</th><td>{view.run.settings?.max_position_pct ?? 0}</td></tr>
+                        <tr><th>Cash Reserve %</th><td>{view.run.settings?.min_cash_reserve_pct ?? 0}</td><th>Min Trade $</th><td>{view.run.settings?.min_trade_value ?? 0}</td></tr>
+                        <tr><th>Max Trade $</th><td>{view.run.settings?.max_trade_value ?? 0}</td><th>Max Qty</th><td>{view.run.settings?.max_order_qty ?? 0}</td></tr>
+                      </>
+                    )}
                   </tbody>
                 </table>
               </fieldset>
@@ -351,6 +382,26 @@ export function ReportPanel({ refresh, onMatchFrame }) {
               <legend>Headline</legend>
               {!equity ? (
                 <div className="report-legacy-muted">No metrics yet.</div>
+              ) : view.runType === 'montecarlo' ? (
+                <table className="report-legacy-kv">
+                  <tbody>
+                    <tr>
+                      <th>Start</th><td>${fmtMoney(equity.start_value)}</td>
+                      <th>Mean End</th><td>${fmtMoney(equity.end_value)}</td>
+                    </tr>
+                    <tr>
+                      <th>Total Return</th><td>{fmtPct(equity.total_return_pct)}</td>
+                      <th>Prob. Profitable</th><td>{fmtPct(view.run?.portfolio?.prob_profit_pct)}</td>
+                    </tr>
+                    <tr>
+                      <th>5th %ile</th><td>${fmtMoney(view.run?.portfolio?.percentiles?.p5)}</td>
+                      <th>50th %ile</th><td>${fmtMoney(view.run?.portfolio?.percentiles?.p50)}</td>
+                    </tr>
+                    <tr>
+                      <th>95th %ile</th><td colSpan={3}>${fmtMoney(view.run?.portfolio?.percentiles?.p95)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               ) : (
                 <table className="report-legacy-kv">
                   <tbody>
@@ -376,16 +427,21 @@ export function ReportPanel({ refresh, onMatchFrame }) {
             </fieldset>
 
             <fieldset>
-              <legend>Equity (quick)</legend>
-              <LineChart
-                points={view.equityCurve}
-                color="#0b5d1e"
-                fillColor="rgba(11,93,30,0.18)"
-                formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-                height={80}
-              />
+              <legend>{view.runType === 'montecarlo' ? 'Fan Chart' : 'Equity (quick)'}</legend>
+              {view.runType === 'montecarlo' && view.fanData?.length > 1 ? (
+                <FanChart fanData={view.fanData} initialCash={view.initialCash} />
+              ) : (
+                <LineChart
+                  points={view.equityCurve}
+                  color="#0b5d1e"
+                  fillColor="rgba(11,93,30,0.18)"
+                  formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                  height={80}
+                />
+              )}
             </fieldset>
 
+            {view.runType !== 'montecarlo' && (
             <fieldset>
               <legend>By Symbol (realized on exits)</legend>
               {symbols.length === 0 ? (
@@ -413,6 +469,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                 </table>
               )}
             </fieldset>
+            )}
 
             {mode === 'run' && (
               <fieldset>
@@ -424,6 +481,7 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                     <thead>
                       <tr>
                         <th>ID</th>
+                        <th>Type</th>
                         <th>Strategy</th>
                         <th>Symbols</th>
                         <th>Window</th>
@@ -440,12 +498,13 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                               #{r.id}
                             </button>
                           </td>
+                          <td>{r.run_type === 'montecarlo' ? 'MC' : 'Backtest'}</td>
                           <td>{r.strategy}</td>
                           <td>{(r.symbols || []).join(', ')}</td>
-                          <td>{r.start_date} → {r.end_date}</td>
+                          <td>{r.run_type === 'montecarlo' ? (r.end_date || '—') : `${r.start_date} → ${r.end_date}`}</td>
                           <td className={Number(r.pnl) >= 0 ? 'pos' : 'neg'}>${fmtMoney(r.pnl)}</td>
-                          <td className="neg">{fmtPct(r.max_drawdown_pct)}</td>
-                          <td>{fmtPct(r.win_rate_pct)}</td>
+                          <td className="neg">{r.run_type === 'montecarlo' ? '—' : fmtPct(r.max_drawdown_pct)}</td>
+                          <td>{r.run_type === 'montecarlo' ? fmtPct(r.prob_profit_pct) : fmtPct(r.win_rate_pct)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -459,24 +518,41 @@ export function ReportPanel({ refresh, onMatchFrame }) {
         {tab === 'performance' && (
           <div className="report-legacy-section">
             <div className="report-charts-with-frame">
-              <fieldset>
-                <legend>Equity Curve</legend>
-                <LineChart
-                  points={view.equityCurve}
-                  color="#0b5d1e"
-                  fillColor="rgba(11,93,30,0.18)"
-                  formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-                  height={120}
-                />
-              </fieldset>
-              <fieldset>
-                <legend>Drawdown</legend>
-                <DrawdownChart equityMetrics={equity} height={80} />
-              </fieldset>
+              {view.runType === 'montecarlo' && view.fanData?.length > 1 ? (
+                <fieldset>
+                  <legend>Fan Chart</legend>
+                  <FanChart fanData={view.fanData} initialCash={view.initialCash} />
+                </fieldset>
+              ) : (
+                <>
+                  <fieldset>
+                    <legend>Equity Curve</legend>
+                    <LineChart
+                      points={view.equityCurve}
+                      color="#0b5d1e"
+                      fillColor="rgba(11,93,30,0.18)"
+                      formatValue={(v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                      height={120}
+                    />
+                  </fieldset>
+                  <fieldset>
+                    <legend>Drawdown</legend>
+                    <DrawdownChart equityMetrics={equity} height={80} />
+                  </fieldset>
+                </>
+              )}
             </div>
             <fieldset>
-              <legend>Return Stats (trade-to-trade)</legend>
-              {!equity ? (
+              <legend>{view.runType === 'montecarlo' ? 'Monte Carlo Stats' : 'Return Stats (trade-to-trade)'}</legend>
+              {view.runType === 'montecarlo' ? (
+                <table className="report-legacy-kv">
+                  <tbody>
+                    <tr><th>Mean End Value</th><td>${fmtMoney(view.run?.portfolio?.value)}</td><th>Prob. Profitable</th><td>{fmtPct(view.run?.portfolio?.prob_profit_pct)}</td></tr>
+                    <tr><th>5th %ile</th><td>${fmtMoney(view.run?.portfolio?.percentiles?.p5)}</td><th>95th %ile</th><td>${fmtMoney(view.run?.portfolio?.percentiles?.p95)}</td></tr>
+                    <tr><th>Paths</th><td>{view.run?.portfolio?.n_sims ?? '—'}</td><th>Horizon</th><td>{view.run?.portfolio?.horizon ?? '—'} days</td></tr>
+                  </tbody>
+                </table>
+              ) : !equity ? (
                 <div className="report-legacy-muted">No stats yet.</div>
               ) : (
                 <table className="report-legacy-kv">
@@ -486,15 +562,22 @@ export function ReportPanel({ refresh, onMatchFrame }) {
                   </tbody>
                 </table>
               )}
-              <div className="report-legacy-muted">
+              {view.runType !== 'montecarlo' && (
+            <div className="report-legacy-muted">
                 Note: these stats are computed from equity changes after trades (not time-normalized).
               </div>
+              )}
             </fieldset>
           </div>
         )}
 
         {tab === 'trades' && (
           <div className="report-legacy-section">
+            {view.runType === 'montecarlo' && (
+              <div className="report-legacy-muted" style={{ marginBottom: 12 }}>
+                Monte Carlo runs simulate many paths; individual trades are not recorded.
+              </div>
+            )}
             <fieldset>
               <legend>Filters</legend>
               <div className="report-legacy-filters">
