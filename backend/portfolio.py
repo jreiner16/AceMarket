@@ -24,8 +24,10 @@ class Portfolio:
         self.short_margin_requirement = 1.5
         self.trade_log = []
         self.equity_curve = []  # [(index, value), ...] after each trade
+        self.fill_at_next_open = False  # when True (backtest), fill at next bar's open
+        self.record_equity_per_bar = False  # when True (backtest), record equity at each bar, skip trade-based
 
-    def _trade_meta(self, stock, index):
+    def _trade_meta(self, stock, index, for_fill=False):
         """Best-effort metadata for a fill: (iloc_index, YYYY-MM-DD time string)."""
         try:
             i = int(index)
@@ -35,13 +37,30 @@ class Portfolio:
             if i is None:
                 i = stock.df.index.size - 1
             i = max(0, min(i, stock.df.index.size - 1))
+            if for_fill and self.fill_at_next_open and i + 1 < stock.df.index.size:
+                i = i + 1
             t = stock.df.index[i]
             ts = t.isoformat()[:10]
         except Exception:
             ts = None
         return i, ts
 
+    def _get_fill_raw_price(self, stock, index):
+        """Raw price for fill. When fill_at_next_open, use next bar's open; else current close."""
+        if index is None:
+            index = stock.df.index.size - 1
+        i = max(0, min(int(index), stock.df.index.size - 1))
+        if self.fill_at_next_open and i + 1 < stock.df.index.size:
+            return float(stock.df["Open"].iloc[i + 1])
+        return float(stock.price(i))
+
+    def record_equity_bar(self, index, value, time_str=None):
+        """Record equity at a bar (for per-bar backtest recording)."""
+        self.equity_curve.append({"i": index, "v": float(value), "time": time_str})
+
     def _append_equity(self, value):
+        if self.record_equity_per_bar:
+            return
         self.equity_curve.append({"i": len(self.trade_log), "v": value})
 
     @property
@@ -236,8 +255,8 @@ class Portfolio:
         quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
-        trade_index, trade_time = self._trade_meta(stock, index)
-        raw_price = stock.price(trade_index)
+        trade_index, trade_time = self._trade_meta(stock, index, for_fill=True)
+        raw_price = self._get_fill_raw_price(stock, index)
         price = self._fill_price("buy", raw_price)
         notional = price * quantity
         commission = self._compute_commission(quantity, notional)
@@ -309,10 +328,10 @@ class Portfolio:
         quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
-        trade_index, trade_time = self._trade_meta(stock, index)
+        trade_index, trade_time = self._trade_meta(stock, index, for_fill=True)
         if not self.allow_short:
             raise ValueError("Short selling is disabled")
-        raw_price = stock.price(trade_index)
+        raw_price = self._get_fill_raw_price(stock, index)
         price = self._fill_price("sell", raw_price)
         notional = price * quantity
         commission = self._compute_commission(quantity, notional)
@@ -386,7 +405,8 @@ class Portfolio:
         quantity = self._round_qty(float(quantity))
         if (index is None):
             index = stock.df.index.size - 1
-        trade_index, trade_time = self._trade_meta(stock, index)
+        trade_index, trade_time = self._trade_meta(stock, index, for_fill=True)
+        raw_price = self._get_fill_raw_price(stock, index)
         if quantity <= 0:
             raise ValueError("Quantity must be positive")
         symbol = stock.symbol.upper()
@@ -397,7 +417,6 @@ class Portfolio:
         if quantity > abs(qty0):
             raise ValueError("Quantity exceeds position size")
         avg0 = float(pos["avg_price"])
-        raw_price = stock.price(trade_index)
 
         if qty0 > 0:
             fill = self._fill_price("sell", raw_price)

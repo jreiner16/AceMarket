@@ -112,6 +112,8 @@ def run_montecarlo(
             port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
             port.set_allow_short(bool(settings.get("allow_short", True)))
             port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
+            port.fill_at_next_open = True
+            port.record_equity_per_bar = True
             port.set_constraints(
                 max_positions=settings.get("max_positions", 0) or 0,
                 max_position_pct=settings.get("max_position_pct", 0.0) or 0.0,

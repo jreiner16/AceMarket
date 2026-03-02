@@ -2,9 +2,9 @@
 
 ## Fill Timing
 
-**Fills are modeled at the close of the bar where the signal occurs.**
+**Fills are modeled at the open of the next bar after the signal.**
 
-When your strategy calls `enter_position_long`, `enter_position_short`, or `exit_position` during `update(open, high, low, close, index)`, the fill price is the **close** of that same bar. This is a common simplification: you observe OHLC, then trade at the close. In reality you would not know the close until the bar ends, so this is slightly optimistic. For daily strategies and educational use it is acceptable. A more conservative assumption would be "fill at next bar's open" (not implemented).
+When your strategy calls `enter_position_long`, `enter_position_short`, or `exit_position` during `update(open, high, low, close, index)`, the fill price is the **open of the next bar** (bar `index + 1`). This is a conservative assumption: you observe OHLC at bar end, place the order, and it gets filled at the next bar's open. On the last bar of the backtest, where no next bar exists, the fill falls back to the current bar's close.
 
 ## Monte Carlo OHLC Model
 

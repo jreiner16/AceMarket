@@ -13,4 +13,4 @@ A full-stack paper trading and Python strategy IDE backtester and Monte Carlo si
 All Rights Reserved — see [LICENSE](LICENSE) for details. Use requires prior permission from the copyright holder. 
 
 ## Limitations
-AceMarket is designed primarily as a simple, eductaional and conceptual tool for learning how to implement strategies, backtest them and simulate probable outcomes. It does not allow for accurate intraday trading, trading of actual shares. However, strategies implemented AceMarket this can easily be translated for implementation in real trading software.
+AceMarket is designed primarily as a simple, educational and conceptual tool for learning how to implement strategies, backtest them and simulate probable outcomes. It does not allow for accurate intraday trading, trading of actual shares. However, strategies implemented AceMarket this can easily be translated for implementation in real trading software.

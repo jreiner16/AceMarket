@@ -161,9 +161,27 @@ class Backtest:
         if start_iloc > end_iloc:
             return
         self.strategy.start(self.strategy.stock.get_candle(start_date))
+
+        stock = self.strategy.stock
+        if self.portfolio.record_equity_per_bar:
+            try:
+                start_dt = stock.df.index[start_iloc]
+                start_date_str = start_dt.strftime("%Y-%m-%d") if hasattr(start_dt, "strftime") else str(start_dt)[:10]
+            except Exception:
+                start_date_str = str(start_date)[:10] if start_date else None
+            self.portfolio.record_equity_bar(start_iloc, float(self.portfolio.get_value(start_iloc)), start_date_str)
+
         for candle in range(start_iloc, end_iloc + 1):
-            open, high, low, close = self.strategy.stock.get_candle(candle)
+            open, high, low, close = stock.get_candle(candle)
             self.strategy.update(open, high, low, close, candle)
+            value = float(self.portfolio.get_value(candle))
+            if self.portfolio.record_equity_per_bar:
+                try:
+                    bar_dt = stock.df.index[candle]
+                    date_str = bar_dt.strftime("%Y-%m-%d") if hasattr(bar_dt, "strftime") else str(bar_dt)[:10]
+                except Exception:
+                    date_str = None
+                self.portfolio.record_equity_bar(candle, value, date_str)
             if on_bar is not None:
-                on_bar(candle, float(self.portfolio.get_value(candle)))
-        self.strategy.end(self.strategy.stock.get_candle(end_date))
+                on_bar(candle, value)
+        self.strategy.end(stock.get_candle(end_date))

@@ -625,6 +625,8 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
             port.set_allow_short(bool(settings.get("allow_short", True)))
             port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
             _apply_portfolio_constraints(port, settings)
+            port.fill_at_next_open = True
+            port.record_equity_per_bar = True
 
             stock = get_stock(symbol)
             block_lookahead = bool(settings.get("block_lookahead", True))
@@ -654,6 +656,8 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
                 port.set_allow_short(bool(settings.get("allow_short", True)))
                 port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
                 _apply_portfolio_constraints(port, settings)
+                port.fill_at_next_open = True
+                port.record_equity_per_bar = True
                 strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
                 bt = Backtest(strategy_obj, port)
                 bt.run(test_start, req.end_date)
@@ -701,8 +705,8 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
     def _enrich_equity(ec, tl):
         out = []
         for j, pt in enumerate(ec):
-            t = None
-            if j > 0 and j - 1 < len(tl) and tl[j - 1].get("time"):
+            t = pt.get("time")
+            if t is None and j > 0 and j - 1 < len(tl) and tl[j - 1].get("time"):
                 t = tl[j - 1]["time"]
             out.append({"i": pt.get("i", j), "v": pt.get("v"), "time": t})
         return out
@@ -731,7 +735,9 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
         events = []
         for pidx, (ec, tl) in enumerate(portfolio_equity_curves):
             for j, pt in enumerate(ec):
-                t = req.start_date if j == 0 else (tl[j - 1]["time"] if j - 1 < len(tl) and tl[j - 1].get("time") else None)
+                t = pt.get("time")
+                if t is None:
+                    t = req.start_date if j == 0 else (tl[j - 1]["time"] if j - 1 < len(tl) and tl[j - 1].get("time") else None)
                 if t:
                     events.append((t, pidx, float(pt.get("v") or 0)))
         events.sort(key=lambda x: (x[0], x[1]))
