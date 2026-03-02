@@ -86,6 +86,10 @@ function App() {
     setReportHeight((h) => Math.min(MAX_REPORT, Math.max(MIN_REPORT, h - dy)))
   }, [])
 
+  const handleFocusRunConsumed = useCallback(() => {
+    setFocusRunId(null)
+  }, [])
+
   if (authLoading) {
     return (
       <div className="app app-loading">
@@ -220,7 +224,7 @@ function App() {
               <ReportPanel
                 refresh={portfolioRefresh}
                 focusRunId={focusRunId}
-                onFocusRunConsumed={() => setFocusRunId(null)}
+                onFocusRunConsumed={handleFocusRunConsumed}
                 onMatchFrame={setChartDateRange}
               />
             ) : (

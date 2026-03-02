@@ -172,12 +172,15 @@ export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFr
 
   useEffect(() => {
     if (focusRunId != null && String(focusRunId).trim()) {
-      setMode('run')
-      setRunId(String(focusRunId))
+      const id = String(focusRunId)
+      queueMicrotask(() => {
+        setMode('run')
+        setRunId(id)
+      })
       fetchRuns() // refetch so new run appears in list
       onFocusRunConsumed?.()
     }
-  }, [focusRunId, fetchRuns])
+  }, [focusRunId, fetchRuns, onFocusRunConsumed])
 
   useEffect(() => {
     if (mode !== 'run' || !effectiveRunId) return
