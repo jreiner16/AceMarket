@@ -1,6 +1,7 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import pandas as pd
@@ -52,12 +53,26 @@ def _check_rate_limit(key: str, window: int, max_calls: int) -> None:
     times.append(now)
 
 
+@asynccontextmanager
+async def lifespan(app):
+    db.init_db()
+    logger.info("AceMarket API started. Auth: %s", "disabled" if DISABLE_AUTH else "enabled")
+    yield
+    if hasattr(db, "_local") and hasattr(db._local, "conn") and db._local.conn is not None:
+        try:
+            db._local.conn.close()
+        except Exception as e:
+            logger.warning("Error closing DB connection on shutdown: %s", e)
+    logger.info("AceMarket API shutdown complete")
+
+
 app = FastAPI(
     title="AceMarket API",
     description="Paper trading platform with strategy backtesting",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS: never allow * with credentials. Require explicit origins in production.
@@ -190,23 +205,6 @@ def save_portfolio(user_id: str, port: Portfolio, settings: dict):
         equity_curve=port.equity_curve,
         realized=port._realized,
     )
-
-
-@app.on_event("startup")
-def startup():
-    db.init_db()
-    logger.info("AceMarket API started. Auth: %s", "disabled" if DISABLE_AUTH else "enabled")
-
-
-@app.on_event("shutdown")
-def shutdown():
-    """Graceful shutdown: close DB connections."""
-    if hasattr(db, "_local") and hasattr(db._local, "conn") and db._local.conn is not None:
-        try:
-            db._local.conn.close()
-        except Exception as e:
-            logger.warning("Error closing DB connection on shutdown: %s", e)
-    logger.info("AceMarket API shutdown complete")
 
 
 # --- Request/Response models ---

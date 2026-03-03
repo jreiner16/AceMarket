@@ -2,6 +2,8 @@
 
 A full-stack paper trading platform with a Python strategy IDE, backtester, and Monte Carlo simulator.
 
+**Live:** [acemarketengine.web.app](https://acemarketengine.web.app)
+
 ## Getting Started
 
 ```bash
@@ -10,6 +12,17 @@ cd frontend && npm run dev
 ```
 
 Run backend and frontend in separate terminals.
+
+## Tests
+
+```bash
+# Backend (from project root)
+cd backend && pip install -r requirements.txt -r requirements-dev.txt
+DISABLE_AUTH=1 ACEMARKET_DB=:memory: pytest tests/ -v
+
+# Frontend
+cd frontend && npm ci && npm run lint && npm run test:run && npm run build
+```
 
 ## Documentation
 
