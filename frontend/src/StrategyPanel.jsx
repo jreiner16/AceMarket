@@ -595,6 +595,10 @@ if index < len(atr_series) and atr_series[index]:
                     <span>{monteCarloResults.prob_profit_pct?.toFixed(1)}%</span>
                   </div>
                   <div className="strategy-run-result-row">
+                    <span><strong>Prob. loss:</strong></span>
+                    <span>{(monteCarloResults.prob_loss_pct ?? 0).toFixed(1)}%</span>
+                  </div>
+                  <div className="strategy-run-result-row">
                     <span><strong>Mean end value:</strong></span>
                     <span>${monteCarloResults.mean?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   </div>

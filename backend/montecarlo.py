@@ -182,7 +182,9 @@ def run_montecarlo(
     p75 = float(np.percentile(arr, 75)) if len(arr) > 0 else initial_cash
     p95 = float(np.percentile(arr, 95)) if len(arr) > 0 else initial_cash
     mean_val = float(np.mean(arr)) if len(arr) > 0 else initial_cash
+    # Prob. profitable = % of paths where end value >= initial (didn't lose money)
     prob_profit = float(np.mean(arr >= initial_cash)) * 100 if len(arr) > 0 else 0.0
+    prob_loss = float(np.mean(arr < initial_cash)) * 100 if len(arr) > 0 else 0.0
 
     return {
         "n_sims": n_sims,
@@ -194,6 +196,7 @@ def run_montecarlo(
         "percentiles": {"p5": p5, "p25": p25, "p50": p50, "p75": p75, "p95": p95},
         "mean": mean_val,
         "prob_profit_pct": prob_profit,
+        "prob_loss_pct": prob_loss,
         "end_values": end_values,
         "fan_data": fan_data,
     }
