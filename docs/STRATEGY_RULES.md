@@ -1,6 +1,6 @@
 # Strategy Rules
 
-Strategy code must define a class that inherits from `Strategy`. Only use data at or before the current bar index in `update()`, anythinge else would be lookahead.
+Strategy code must define a class that inherits from `Strategy`. Only use data at or before the current bar index in `update()`, anything else would be lookahead.
 
 ## Class Structure
 

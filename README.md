@@ -1,16 +1,35 @@
 # AceMarket
-A full-stack paper trading and Python strategy IDE backtester and Monte Carlo simulator.
 
-## Dev startup
-- In one terminal: `cd backend && uvicorn api:app`
-- In another terminal: `cd frontend && npm run dev`
+A full-stack paper trading platform with a Python strategy IDE, backtester, and Monte Carlo simulator.
+
+## Getting Started
+
+```bash
+cd backend && uvicorn api:app
+cd frontend && npm run dev
+```
+
+Run backend and frontend in separate terminals.
 
 ## Documentation
-- **[Strategy Rules](docs/STRATEGY_RULES.md)** — exact rules for writing a strategy in the IDE backtester.
-- **[API Reference](docs/API.md)** — API endpoint documentation and explanation
 
-## License
-All Rights Reserved — see [LICENSE](LICENSE) for details. Use requires prior permission from the copyright holder. 
+- [Strategy Rules](docs/STRATEGY_RULES.md)
+- [API Reference](docs/API.md)
+
+## Deployment
+
+Deploy frontend and backend separately. The frontend uses `VITE_API_BASE` at build time.
+
+**Backend** — Deploy `backend/` (Docker or uvicorn). Set `CORS_ORIGINS`, `ENVIRONMENT=production`, `GOOGLE_APPLICATION_CREDENTIALS`, `ACEMARKET_DB`. See `backend/.env.example`.
+
+**Frontend** — Build with `npm run build`. Set `VITE_API_BASE` and `VITE_FIREBASE_*`. See `frontend/.env.example`.
+
+**Firebase** — Create project, enable auth, add frontend URL to Authorized domains, configuring the Admin SDK on backend.
 
 ## Limitations
-AceMarket is designed primarily as a simple, educational and conceptual tool for learning how to implement strategies, backtest them and simulate probable outcomes. It does not allow for accurate intraday trading, trading of actual shares. However, strategies implemented AceMarket this can easily be translated for implementation in real trading software.
+
+This engine is an educational tool for strategy testing. It doesn't allow for intraday trading or trading of real shares. However, strategies implemented in this engine can be translated for real trading software.
+
+## License
+
+All Rights Reserved — see [LICENSE](LICENSE).
