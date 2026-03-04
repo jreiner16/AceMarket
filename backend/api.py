@@ -859,14 +859,14 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
     try:
         strat = db.get_strategy(user_id, req.strategy_id)
         if not strat:
-            _montecarlo_jobs[job_id] = {"status": "error", "error": "Strategy not found"}
+            _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": "Strategy not found"}
             return
         symbol = _validate_symbol(req.symbol)
         n_sims = max(10, min(500, req.n_sims))
         horizon = max(21, min(504, req.horizon))
         stock = get_stock(symbol)
         if stock.df.empty:
-            _montecarlo_jobs[job_id] = {"status": "error", "error": f"No data for {symbol}"}
+            _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": f"No data for {symbol}"}
             return
         settings = db.get_settings(user_id)
         block_lookahead = bool(settings.get("block_lookahead", True))
@@ -910,11 +910,12 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
         logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
         _montecarlo_jobs[job_id] = {
             "status": "done",
+            "user_id": user_id,
             "result": {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result},
         }
     except Exception as e:
         logger.exception("Monte Carlo job %s failed", job_id)
-        _montecarlo_jobs[job_id] = {"status": "error", "error": str(e)}
+        _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
 
 
 @app.post("/api/v1/strategies/montecarlo")
