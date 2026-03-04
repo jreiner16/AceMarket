@@ -34,12 +34,13 @@ ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
 
 # Auth bypass: in development, bypass when Firebase creds missing or DISABLE_AUTH=1
+_creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
 _creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
 if _creds_path and not os.path.isabs(_creds_path):
     _creds_path = os.path.join(_env_dir, _creds_path.lstrip("./"))
 if _creds_path and os.path.isfile(_creds_path):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _creds_path
-_has_firebase_creds = _creds_path and os.path.isfile(_creds_path)
+_has_firebase_creds = bool(_creds_json) or (_creds_path and os.path.isfile(_creds_path))
 _explicit_disable = os.environ.get("DISABLE_AUTH", "").lower() in ("1", "true", "yes")
 _explicit_enable = os.environ.get("DISABLE_AUTH", "").lower() in ("0", "false", "no")
 if IS_PRODUCTION:

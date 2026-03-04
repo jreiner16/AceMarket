@@ -1,5 +1,6 @@
 /* apiClient --API loader */
 import { auth } from './firebase'
+import { onRequestStart, onRequestEnd } from './coldStartStore'
 
 // Production: set VITE_API_BASE to full API URL (e.g. https://api.yoursite.com/api/v1)
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '') || '/api/v1'
@@ -17,28 +18,34 @@ async function getAuthHeaders() {
 }
 
 export async function apiFetch(path, options = {}) {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
-  const { signal, ...restOptions } = options
-  const headers = {
-    ...(options.headers || {}),
-    ...(await getAuthHeaders()),
-  }
-  if (restOptions.body && typeof restOptions.body === 'object' && !(restOptions.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json'
-  }
-  const res = await fetch(url, { ...restOptions, headers, signal })
-  if (!res.ok) {
-    const err = new Error(res.statusText || `Request failed: ${res.status}`)
-    err.status = res.status
-    try {
-      const data = await res.json()
-      err.detail = data.detail || data.message
-    } catch {
-      err.detail = await res.text()
+  onRequestStart()
+  try {
+    const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
+    const { signal, ...restOptions } = options
+    const headers = {
+      ...(options.headers || {}),
+      ...(await getAuthHeaders()),
     }
-    throw err
+    if (restOptions.body && typeof restOptions.body === 'object' && !(restOptions.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json'
+    }
+    const res = await fetch(url, { ...restOptions, headers, signal })
+    if (!res.ok) {
+      const err = new Error(res.statusText || `Request failed: ${res.status}`)
+      err.status = res.status
+      const text = await res.text()
+      try {
+        const data = JSON.parse(text)
+        err.detail = data.detail || data.message
+      } catch {
+        err.detail = text
+      }
+      throw err
+    }
+    return res
+  } finally {
+    onRequestEnd()
   }
-  return res
 }
 
 export async function apiGet(path) {

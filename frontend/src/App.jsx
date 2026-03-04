@@ -13,6 +13,7 @@ import { Watchlist } from './Watchlist'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ColdStartModal } from './ColdStartModal'
 import './App.css'
 
 const MIN_LEFT = 180
@@ -327,6 +328,7 @@ function App() {
         }}
         onCancel={() => setConfirmSignOut(false)}
       />
+      <ColdStartModal />
     </div>
   )
 }

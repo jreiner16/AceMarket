@@ -1,4 +1,5 @@
 """Firebase API authentication"""
+import json
 import os
 import logging
 from typing import Optional
@@ -20,12 +21,24 @@ def _get_firebase_app():
             import firebase_admin
             from firebase_admin import credentials
             if not firebase_admin._apps:
-                cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-                if cred_path and os.path.exists(cred_path):
-                    cred = credentials.Certificate(cred_path)
+                cred = None
+                cred_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+                if cred_json:
+                    try:
+                        data = json.loads(cred_json)
+                        cred = credentials.Certificate(data)
+                    except json.JSONDecodeError as e:
+                        logger.error("Invalid FIREBASE_CREDENTIALS_JSON: %s", e)
+                        raise
+                else:
+                    cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                    if cred_path and os.path.exists(cred_path):
+                        cred = credentials.Certificate(cred_path)
+                    else:
+                        cred = None
+                if cred:
                     _firebase_app = firebase_admin.initialize_app(cred)
                 else:
-                    # Use default credentials (e.g. GCP env)
                     _firebase_app = firebase_admin.initialize_app()
         except Exception as e:
             logger.error("Firebase init failed: %s", e)
