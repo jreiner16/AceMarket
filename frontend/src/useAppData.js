@@ -1,4 +1,4 @@
-// useAppData -- single bootstrap fetch for portfolio, runs, watchlist. Replaces multiple round-trips.
+// useAppData -- parallel fetch: light bootstrap (runs+watchlist) + portfolio. Fast time-to-content.
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiGet, apiPut } from './apiClient'
 
@@ -38,15 +38,18 @@ export function useAppData(user) {
   const fetchBootstrap = useCallback(() => {
     if (!user) return
     setLoading(true)
-    apiGet('/bootstrap')
-      .then((data) => {
-        if (data?.portfolio) setPortfolio(data.portfolio)
-        setRuns(data?.runs ?? [])
-        const wl = data?.watchlist
+    // Fetch light bootstrap (fast) and portfolio (slower) in parallel
+    const bootstrapPromise = apiGet('/bootstrap')
+    const portfolioPromise = apiGet('/portfolio')
+    Promise.all([bootstrapPromise, portfolioPromise])
+      .then(([bootstrap, port]) => {
+        setRuns(bootstrap?.runs ?? [])
+        const wl = bootstrap?.watchlist
         if (Array.isArray(wl) && wl.length > 0) {
           setWatchlistState(wl)
           saveToLocal(user.uid, wl)
         }
+        if (port) setPortfolio(port)
       })
       .catch(() => {
         setPortfolio(null)

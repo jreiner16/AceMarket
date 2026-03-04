@@ -52,6 +52,12 @@ function App() {
     })
   }, [])
 
+  // Warm up backend as early as possible (Render cold start ~30–60s)
+  useEffect(() => {
+    const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/api\/v1\/?$/, '').replace(/\/$/, '') || window.location.origin
+    fetch(`${base}/health`).catch(() => {})
+  }, [])
+
   const handleSelectStock = useCallback((symbol) => {
     setSelectedSymbol(symbol)
     setWatchlist((w) => (w.includes(symbol) ? w : [...w, symbol].slice(-30)))

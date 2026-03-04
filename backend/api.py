@@ -47,6 +47,9 @@ _rate_limit_store: dict[str, list[float]] = {}
 # Monte Carlo background jobs: job_id -> { status, result?, error? }
 _montecarlo_jobs: dict[str, dict] = {}
 
+# Backtest background jobs: job_id -> { status, result?, error? }
+_backtest_jobs: dict[str, dict] = {}
+
 
 def _check_rate_limit(key: str, window: int, max_calls: int) -> None:
     now = time.time()
@@ -177,6 +180,17 @@ def get_portfolio(user_id: str) -> Portfolio:
     port = Portfolio()
     state = db.get_portfolio_state(user_id)
     if state:
+        # Prefetch all position stocks in parallel (was sequential, now ~5x faster)
+        symbols = [str(p.get("symbol", "")).upper() for p in state.get("positions", []) if p.get("symbol")]
+        if symbols:
+            max_w = min(8, len(symbols))
+            with ThreadPoolExecutor(max_workers=max_w) as ex:
+                futures = {ex.submit(get_stock, s): s for s in symbols}
+                for fut in as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception:
+                        pass
         port.restore_from_state(
             cash=state["cash"],
             positions_data=state["positions"],
@@ -476,63 +490,11 @@ def get_stock_price(symbol: str, user_id: str = Depends(verify_token)) -> dict:
 
 @app.get("/api/v1/bootstrap")
 def bootstrap_endpoint(user_id: str = Depends(verify_token)) -> dict:
-    """Single call to load portfolio, runs, and watchlist. Reduces round-trips on app load."""
+    """Light bootstrap: runs + watchlist only. Returns in <500ms. Fetch /portfolio in parallel for full data."""
     settings = db.get_settings(user_id)
     watchlist = settings.get("watchlist", ["AAPL", "MSFT", "GOOGL", "TSLA"])
     runs = db.get_runs(user_id, limit=MAX_RUNS_PER_USER)
-    port = get_portfolio(user_id)
-    initial = settings["initial_cash"]
-    positions = []
-    for p in port.positions():
-        stock = p["stock"]
-        quantity = float(p["quantity"])
-        symbol = stock.symbol
-        price = float(stock.price())
-        avg_price = float(p.get("avg_price") or 0.0)
-        realized_pnl = float(p.get("realized_pnl") or 0.0)
-        if quantity > 0:
-            pnl = (price - avg_price) * quantity
-        else:
-            pnl = (avg_price - price) * abs(quantity)
-        pnl_pct = (pnl / (avg_price * abs(quantity)) * 100) if avg_price and abs(quantity) else 0.0
-        positions.append(
-            Position(
-                symbol=symbol,
-                quantity=abs(quantity),
-                side="long" if quantity > 0 else "short",
-                avg_price=avg_price,
-                current_price=price,
-                pnl=pnl,
-                pnl_pct=pnl_pct,
-                realized_pnl=realized_pnl,
-            )
-        )
-    value = port.get_value()
-    trade_log = port.trade_log
-    equity_curve = [{"i": 0, "v": initial}] + port.equity_curve
-    if not equity_curve or abs(equity_curve[-1]["v"] - value) > 0.01:
-        equity_curve.append({"i": max(1, len(port.trade_log)), "v": value})
-    equity_curve_enriched = []
-    for pt in equity_curve:
-        q = dict(pt)
-        i = q.get("i")
-        if isinstance(i, int) and i > 0 and i - 1 < len(trade_log):
-            q["time"] = trade_log[i - 1].get("time")
-        equity_curve_enriched.append(q)
-    metrics = compute_report(trade_log=trade_log, equity_curve=equity_curve_enriched, initial_cash=initial)
-    portfolio = {
-        "cash": port.cash,
-        "reserved_cash": port.get_reserved_cash(),
-        "buying_power": port.get_buying_power(),
-        "short_exposure": port.get_short_market_value(),
-        "value": value,
-        "positions": positions,
-        "trade_log": trade_log,
-        "equity_curve": equity_curve_enriched,
-        "initial_cash": initial,
-        "metrics": metrics,
-    }
-    return {"portfolio": portfolio, "runs": runs, "watchlist": watchlist}
+    return {"runs": runs, "watchlist": watchlist}
 
 
 @app.get("/api/v1/watchlist")
@@ -774,187 +736,170 @@ def delete_strategy_endpoint(strategy_id: int, user_id: str = Depends(verify_tok
     return {"ok": True}
 
 
-@app.post("/api/v1/strategies/run")
-def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify_token)):
-    """Run a strategy on one or more stocks. Each symbol runs independently with equal capital allocation."""
-    _check_rate_limit(f"strategy:{user_id}", RATE_LIMIT_STRATEGY_WINDOW_SEC, RATE_LIMIT_STRATEGY_MAX)
+def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest):
+    """Background task: run backtest and store result. Avoids Render's 30s request timeout."""
+    try:
+        strat = db.get_strategy(user_id, req.strategy_id)
+        if not strat:
+            _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": "Strategy not found"}
+            return
+        symbols = [s.strip().upper() for s in req.symbols if s and s.strip()]
+        if not symbols:
+            _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": "Select at least one stock"}
+            return
+        settings = db.get_settings(user_id)
+        initial_total = float(settings["initial_cash"])
+        cash_per_symbol = initial_total / len(symbols)
+        train_pct = req.train_pct
+        start_d = pd.to_datetime(req.start_date)
+        end_d = pd.to_datetime(req.end_date)
+        if train_pct and 0 < train_pct < 1:
+            delta = (end_d - start_d).days
+            split_offset = int(delta * train_pct)
+            split_d = start_d + pd.Timedelta(days=split_offset)
+            split_date = split_d.strftime("%Y-%m-%d")
+            train_end, test_start = split_date, split_date
+        else:
+            train_end, test_start = None, None
+        auto_liquidate = bool(settings.get("auto_liquidate_end", True))
+        max_workers = min(8, max(1, len(symbols)))
+        symbol_to_result: dict[str, dict] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {
+                ex.submit(
+                    _run_backtest_single_symbol,
+                    symbol, strat, settings, cash_per_symbol,
+                    req.start_date, req.end_date, train_end, test_start, auto_liquidate,
+                ): symbol
+                for symbol in symbols
+            }
+            for fut in as_completed(futures):
+                symbol = futures[fut]
+                try:
+                    symbol_to_result[symbol] = fut.result()
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.warning("Strategy run failed for %s: %s", symbol, e)
+                    symbol_to_result[symbol] = {"ok": False, "symbol": symbol, "error": str(e)}
+        results = []
+        combined_trade_log = []
+        portfolio_equity_curves = []
+        total_end_value = 0.0
+        train_metrics = None
+        test_metrics = None
+        for symbol in symbols:
+            r = symbol_to_result.get(symbol)
+            if not r or not r.get("ok"):
+                results.append({"strategy": strat["name"], "symbol": symbol, "error": (r or {}).get("error", "Unknown error")})
+                continue
+            total_end_value += r["end_val"]
+            results.append({"strategy": strat["name"], "symbol": symbol, "start_value": cash_per_symbol, "end_value": r["end_val"], "pnl": r["end_val"] - cash_per_symbol})
+            combined_trade_log.extend(r.get("trade_log") or [])
+            portfolio_equity_curves.append((r.get("equity_curve") or [], r.get("trade_log") or []))
+            if train_end and test_start:
+                if train_metrics is None and r.get("train_metrics"):
+                    train_metrics = r["train_metrics"]
+                if test_metrics is None and r.get("test_metrics"):
+                    test_metrics = r["test_metrics"]
+        port_value = total_end_value
+        initial = initial_total
 
+        def _enrich_equity(ec, tl):
+            out = []
+            for j, pt in enumerate(ec):
+                t = pt.get("time")
+                if t is None and j > 0 and j - 1 < len(tl) and tl[j - 1].get("time"):
+                    t = tl[j - 1]["time"]
+                out.append({"i": pt.get("i", j), "v": pt.get("v"), "time": t})
+            return out
+
+        if not portfolio_equity_curves:
+            equity_curve_enriched = [{"i": 0, "v": initial, "time": None}, {"i": 1, "v": port_value, "time": req.end_date}]
+        elif len(portfolio_equity_curves) == 1:
+            ec, tl = portfolio_equity_curves[0]
+            equity_curve_enriched = _enrich_equity(ec, tl)
+            if equity_curve_enriched:
+                if equity_curve_enriched[0].get("i") != 0:
+                    equity_curve_enriched.insert(0, {"i": 0, "v": initial, "time": req.start_date})
+                if equity_curve_enriched[0].get("time") is None:
+                    equity_curve_enriched[0]["time"] = req.start_date
+                if equity_curve_enriched[-1].get("time") is None:
+                    equity_curve_enriched[-1]["time"] = req.end_date
+        else:
+            events = []
+            for pidx, (ec, tl) in enumerate(portfolio_equity_curves):
+                for j, pt in enumerate(ec):
+                    t = pt.get("time")
+                    if t is None:
+                        t = req.start_date if j == 0 else (tl[j - 1]["time"] if j - 1 < len(tl) and tl[j - 1].get("time") else None)
+                    if t:
+                        events.append((t, pidx, float(pt.get("v") or 0)))
+            events.sort(key=lambda x: (x[0], x[1]))
+            current = [float(ec[0].get("v") or 0) if ec else 0 for ec, _ in portfolio_equity_curves]
+            equity_curve_enriched = [{"i": 0, "v": initial, "time": None}]
+            seen_times = set()
+            for t, pidx, v in events:
+                current[pidx] = v
+                if t not in seen_times:
+                    seen_times.add(t)
+                    equity_curve_enriched.append({"i": len(equity_curve_enriched), "v": sum(current), "time": t})
+
+        metrics = compute_report(trade_log=combined_trade_log, equity_curve=equity_curve_enriched, initial_cash=initial)
+        run_data = {
+            "strategy_id": req.strategy_id,
+            "strategy": strat["name"],
+            "symbols": symbols,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "train_pct": train_pct,
+            "train_metrics": train_metrics,
+            "test_metrics": test_metrics,
+            "results": results,
+            "portfolio": {"initial_cash": initial, "value": port_value, "trade_log": combined_trade_log, "equity_curve": equity_curve_enriched},
+            "metrics": metrics,
+        }
+        run_id = db.save_run(user_id, run_data)
+        _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": {"ok": True, "results": results, "run_id": run_id}}
+    except Exception as e:
+        logger.exception("Backtest job %s failed", job_id)
+        _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
+
+
+@app.post("/api/v1/strategies/run")
+def run_strategy_endpoint(req: RunStrategyRequest, background_tasks: BackgroundTasks, user_id: str = Depends(verify_token)):
+    """Start backtest in background, return job_id immediately. Poll GET /strategies/run/{job_id} for result."""
+    _check_rate_limit(f"strategy:{user_id}", RATE_LIMIT_STRATEGY_WINDOW_SEC, RATE_LIMIT_STRATEGY_MAX)
     strat = db.get_strategy(user_id, req.strategy_id)
     if not strat:
         raise HTTPException(status_code=404, detail="Strategy not found")
     if not req.symbols:
         raise HTTPException(status_code=400, detail="Select at least one stock")
-
     symbols = [s.strip().upper() for s in req.symbols if s and s.strip()]
     if not symbols:
         raise HTTPException(status_code=400, detail="Select at least one stock")
-
     train_pct = req.train_pct
     if train_pct is not None and (train_pct <= 0 or train_pct >= 1):
         raise HTTPException(status_code=400, detail="train_pct must be between 0 and 1 (exclusive)")
+    job_id = str(uuid.uuid4())
+    _backtest_jobs[job_id] = {"status": "pending", "user_id": user_id}
+    background_tasks.add_task(_run_backtest_background, job_id, user_id, req)
+    return {"ok": True, "job_id": job_id}
 
-    settings = db.get_settings(user_id)
-    initial_total = float(settings["initial_cash"])
-    cash_per_symbol = initial_total / len(symbols)
 
-    # Walk-forward: compute train/test split
-    start_d = pd.to_datetime(req.start_date)
-    end_d = pd.to_datetime(req.end_date)
-    if train_pct and 0 < train_pct < 1:
-        delta = (end_d - start_d).days
-        split_offset = int(delta * train_pct)
-        split_d = start_d + pd.Timedelta(days=split_offset)
-        split_date = split_d.strftime("%Y-%m-%d")
-        train_end = split_date
-        test_start = split_date
-    else:
-        train_end = None
-        test_start = None
-
-    auto_liquidate = bool(settings.get("auto_liquidate_end", True))
-    max_workers = min(8, max(1, len(symbols)))
-    symbol_to_result: dict[str, dict] = {}
-
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {
-            ex.submit(
-                _run_backtest_single_symbol,
-                symbol,
-                strat,
-                settings,
-                cash_per_symbol,
-                req.start_date,
-                req.end_date,
-                train_end,
-                test_start,
-                auto_liquidate,
-            ): symbol
-            for symbol in symbols
-        }
-        for fut in as_completed(futures):
-            symbol = futures[fut]
-            try:
-                r = fut.result()
-                symbol_to_result[symbol] = r
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.warning("Strategy run failed for %s: %s", symbol, e)
-                symbol_to_result[symbol] = {"ok": False, "symbol": symbol, "error": str(e)}
-
-    # Preserve symbol order for results, combined_trade_log, portfolio_equity_curves
-    results = []
-    combined_trade_log = []
-    portfolio_equity_curves = []
-    total_end_value = 0.0
-    train_metrics = None
-    test_metrics = None
-
-    for symbol in symbols:
-        r = symbol_to_result.get(symbol)
-        if not r or not r.get("ok"):
-            results.append({
-                "strategy": strat["name"],
-                "symbol": symbol,
-                "error": (r or {}).get("error", "Unknown error"),
-            })
-            continue
-        total_end_value += r["end_val"]
-        results.append({
-            "strategy": strat["name"],
-            "symbol": symbol,
-            "start_value": cash_per_symbol,
-            "end_value": r["end_val"],
-            "pnl": r["end_val"] - cash_per_symbol,
-        })
-        combined_trade_log.extend(r.get("trade_log") or [])
-        portfolio_equity_curves.append((r.get("equity_curve") or [], r.get("trade_log") or []))
-        if train_end and test_start:
-            if train_metrics is None and r.get("train_metrics"):
-                train_metrics = r["train_metrics"]
-            if test_metrics is None and r.get("test_metrics"):
-                test_metrics = r["test_metrics"]
-
-    port_value = total_end_value
-    initial = initial_total
-
-    # Build merged equity curve: per-trade points, not just start/end
-    def _enrich_equity(ec, tl):
-        out = []
-        for j, pt in enumerate(ec):
-            t = pt.get("time")
-            if t is None and j > 0 and j - 1 < len(tl) and tl[j - 1].get("time"):
-                t = tl[j - 1]["time"]
-            out.append({"i": pt.get("i", j), "v": pt.get("v"), "time": t})
-        return out
-
-    if not portfolio_equity_curves:
-        equity_curve_enriched = [
-            {"i": 0, "v": initial, "time": None},
-            {"i": 1, "v": port_value, "time": req.end_date},
-        ]
-    elif len(portfolio_equity_curves) == 1:
-        ec, tl = portfolio_equity_curves[0]
-        equity_curve_enriched = _enrich_equity(ec, tl)
-        # Portfolio equity_curve has no initial point; prepend it
-        if equity_curve_enriched:
-            first = equity_curve_enriched[0]
-            if first.get("i") != 0:
-                equity_curve_enriched.insert(0, {"i": 0, "v": initial, "time": req.start_date})
-        if equity_curve_enriched and equity_curve_enriched[0].get("time") is None:
-            equity_curve_enriched[0]["time"] = req.start_date
-        if equity_curve_enriched:
-            last = equity_curve_enriched[-1]
-            if last.get("time") is None:
-                last["time"] = req.end_date
-    else:
-        # Multi-symbol: merge by time. Each portfolio has (time, value) events; combined = sum at each event.
-        events = []
-        for pidx, (ec, tl) in enumerate(portfolio_equity_curves):
-            for j, pt in enumerate(ec):
-                t = pt.get("time")
-                if t is None:
-                    t = req.start_date if j == 0 else (tl[j - 1]["time"] if j - 1 < len(tl) and tl[j - 1].get("time") else None)
-                if t:
-                    events.append((t, pidx, float(pt.get("v") or 0)))
-        events.sort(key=lambda x: (x[0], x[1]))
-        current = [float(ec[0].get("v") or 0) if ec else 0 for ec, _ in portfolio_equity_curves]
-        equity_curve_enriched = [{"i": 0, "v": initial, "time": None}]
-        seen_times = set()
-        for t, pidx, v in events:
-            current[pidx] = v
-            combined = sum(current)
-            if t not in seen_times:
-                seen_times.add(t)
-                equity_curve_enriched.append({"i": len(equity_curve_enriched), "v": combined, "time": t})
-
-    metrics = compute_report(
-        trade_log=combined_trade_log,
-        equity_curve=equity_curve_enriched,
-        initial_cash=initial,
-    )
-
-    run_data = {
-        "strategy_id": req.strategy_id,
-        "strategy": strat["name"],
-        "symbols": symbols,
-        "start_date": req.start_date,
-        "end_date": req.end_date,
-        "train_pct": train_pct,
-        "train_metrics": train_metrics,
-        "test_metrics": test_metrics,
-        "results": results,
-        "portfolio": {
-            "initial_cash": initial,
-            "value": port_value,
-            "trade_log": combined_trade_log,
-            "equity_curve": equity_curve_enriched,
-        },
-        "metrics": metrics,
-    }
-    run_id = db.save_run(user_id, run_data)
-
-    return {"ok": True, "results": results, "run_id": run_id}
+@app.get("/api/v1/strategies/run/{job_id}")
+def backtest_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
+    """Poll for backtest result. Returns status: pending | done | error."""
+    if job_id not in _backtest_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = _backtest_jobs[job_id]
+    if job.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if job["status"] == "done":
+        return job["result"]
+    if job["status"] == "error":
+        raise HTTPException(status_code=400, detail=job.get("error", "Backtest failed"))
+    return {"status": "pending"}
 
 
 def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest):

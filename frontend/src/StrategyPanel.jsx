@@ -215,7 +215,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
           horizon: h,
         })
         while (true) {
-          await new Promise((r) => setTimeout(r, 1500))
+          await new Promise((r) => setTimeout(r, 1000))
           const data = await apiGet(`/strategies/montecarlo/${job_id}`)
           if (data.status === 'pending') continue
           setMonteCarloResults(data)
@@ -254,10 +254,16 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
       if (Number.isFinite(trainPct) && trainPct > 0 && trainPct < 1) {
         body.train_pct = trainPct
       }
-      const data = await apiPost('/strategies/run', body)
-      setRunResults(data.results || [])
-      onRefresh?.()
-      if (data?.run_id != null) onRunCompleted?.(data.run_id)
+      const { job_id } = await apiPost('/strategies/run', body)
+      while (true) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const data = await apiGet(`/strategies/run/${job_id}`)
+        if (data.status === 'pending') continue
+        setRunResults(data.results || [])
+        onRefresh?.()
+        if (data?.run_id != null) onRunCompleted?.(data.run_id)
+        break
+      }
     } catch (e) {
       setRunResults([{ error: e.detail || e.message }])
     } finally {
