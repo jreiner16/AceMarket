@@ -12,6 +12,17 @@ from data_provider import get_ohlc
 logger = logging.getLogger(__name__)
 
 
+def make_minimal_stock(symbol: str = "AAPL") -> "Stock":
+    """Create a minimal Stock for validation (no Yahoo fetch). Avoids timeouts on save."""
+    import pandas as pd
+    dates = pd.DatetimeIndex(["2020-01-02", "2020-01-03"])
+    df = pd.DataFrame(
+        {"Open": [100.0, 101.0], "High": [102.0, 103.0], "Low": [99.0, 100.0], "Close": [101.0, 102.0], "Volume": [1e6, 1e6]},
+        index=dates,
+    )
+    return Stock(symbol, df=df)
+
+
 def _safe_float_for_json(x: float) -> Optional[float]:
     """Convert values for use in JSONs"""
     if pd.isna(x) or (isinstance(x, float) and np.isnan(x)):

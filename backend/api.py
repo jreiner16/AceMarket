@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from analytics import compute_report
 from backtest import Backtest, create_strategy_from_code
 from portfolio import Portfolio
-from stock import Stock
+from stock import Stock, make_minimal_stock
 
 logger = logging.getLogger(__name__)
 
@@ -690,7 +690,7 @@ def create_strategy_endpoint(req: StrategyCreate, user_id: str = Depends(verify_
     settings = db.get_settings(user_id)
     block_lookahead = bool(settings.get("block_lookahead", True))
     try:
-        stock = get_stock("AAPL")
+        stock = make_minimal_stock("AAPL")
         port = Portfolio()
         port.add_cash(1000)
         create_strategy_from_code(stock, port, req.code, block_lookahead=block_lookahead)
@@ -719,7 +719,7 @@ def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str
     settings = db.get_settings(user_id)
     block_lookahead = bool(settings.get("block_lookahead", True))
     try:
-        stock = get_stock("AAPL")
+        stock = make_minimal_stock("AAPL")
         port = Portfolio()
         port.add_cash(1000)
         create_strategy_from_code(stock, port, upd.code if upd.code is not None else strat["code"], block_lookahead=block_lookahead)
