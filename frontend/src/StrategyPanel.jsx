@@ -196,7 +196,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
         'Building synthetic price paths…',
         'Running strategy on each path…',
         'Computing percentiles…',
-        'Almost done…',
+        'This may take 1–2 minutes…',
       ]
       const msgInterval = setInterval(() => {
         setRunningMessage((prev) => {
@@ -455,11 +455,11 @@ if index < len(atr_series) and atr_series[index]:
       </div>
 
       {runModalOpen && (
-        <div className="strategy-run-modal-overlay" onClick={() => !running && setRunModalOpen(false)}>
+        <div className="strategy-run-modal-overlay" onClick={() => setRunModalOpen(false)}>
           <div className="strategy-run-modal" onClick={(e) => e.stopPropagation()}>
             <div className="strategy-run-modal-header">
               <span>Run: {name || 'Strategy'}</span>
-              <button type="button" className="strategy-run-modal-close" onClick={() => !running && setRunModalOpen(false)}>×</button>
+              <button type="button" className="strategy-run-modal-close" onClick={() => setRunModalOpen(false)}>×</button>
             </div>
             <div className="strategy-run-modal-body">
               <div className="strategy-run-modal-section">
@@ -611,14 +611,19 @@ if index < len(atr_series) and atr_series[index]:
                 </>
               )}
 
+              {running && runMode === 'backtest' && (
+                <div className="strategy-run-results strategy-run-loading-box">
+                  <div className="strategy-run-result-row">
+                    <span className="strategy-run-loading-spinner" />
+                    <span className="strategy-run-loading">Running backtest…</span>
+                  </div>
+                </div>
+              )}
               {running && runMode === 'montecarlo' && (
                 <div className="strategy-run-results strategy-run-loading-box">
                   <div className="strategy-run-result-row">
                     <span className="strategy-run-loading-spinner" />
                     <span className="strategy-run-loading">{runningMessage || 'Running Monte Carlo simulation…'}</span>
-                  </div>
-                  <div className="strategy-run-result-row strategy-run-loading-hint">
-                    This can take 1–2 minutes. You can keep using the app.
                   </div>
                 </div>
               )}
@@ -684,7 +689,7 @@ if index < len(atr_series) and atr_series[index]:
               )}
             </div>
             <div className="strategy-run-modal-footer">
-              <button type="button" className="strategy-btn" onClick={() => setRunModalOpen(false)} disabled={running}>
+              <button type="button" className="strategy-btn" onClick={() => setRunModalOpen(false)}>
                 Close
               </button>
               <button

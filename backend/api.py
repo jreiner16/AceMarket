@@ -2,6 +2,8 @@
 import logging
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -121,6 +123,7 @@ async def add_security_headers(request: Request, call_next):
 
 # In-memory stock cache (shared across users)
 _stock_cache: dict[str, dict] = {}
+_stock_cache_lock = Lock()
 
 
 def _validate_symbol(symbol: str) -> str:
@@ -138,21 +141,24 @@ def _validate_symbol(symbol: str) -> str:
 def get_stock(symbol: str) -> Stock:
     symbol = _validate_symbol(symbol)
     now = time.time()
-    expired = [k for k, v in _stock_cache.items() if now - float(v.get("ts", 0)) > STOCK_CACHE_TTL_SEC]
-    for k in expired:
-        _stock_cache.pop(k, None)
+    with _stock_cache_lock:
+        expired = [k for k, v in _stock_cache.items() if now - float(v.get("ts", 0)) > STOCK_CACHE_TTL_SEC]
+        for k in expired:
+            _stock_cache.pop(k, None)
 
-    if symbol not in _stock_cache:
-        stock = Stock(symbol)
-        if stock.df.empty:
-            raise HTTPException(status_code=404, detail=f"No data for {symbol}")
-        _stock_cache[symbol] = {"ts": now, "stock": stock}
-        if len(_stock_cache) > STOCK_CACHE_MAX:
-            lru = min(_stock_cache.items(), key=lambda kv: float(kv[1].get("ts", 0)))[0]
-            if lru != symbol:
-                _stock_cache.pop(lru, None)
-    _stock_cache[symbol]["ts"] = now
-    return _stock_cache[symbol]["stock"]
+        if symbol not in _stock_cache:
+            stock = Stock(symbol)
+            if stock.df.empty:
+                raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+            _stock_cache[symbol] = {"ts": now, "stock": stock}
+            if len(_stock_cache) > STOCK_CACHE_MAX:
+                lru = min(_stock_cache.items(), key=lambda kv: float(kv[1].get("ts", 0)))[0]
+                if lru != symbol:
+                    _stock_cache.pop(lru, None)
+            _stock_cache[symbol]["ts"] = now
+            return _stock_cache[symbol]["stock"]
+        _stock_cache[symbol]["ts"] = now
+        return _stock_cache[symbol]["stock"]
 
 
 def get_portfolio(user_id: str) -> Portfolio:
@@ -197,6 +203,100 @@ def _apply_portfolio_constraints(port: Portfolio, settings: dict) -> None:
         max_trade_value=settings.get("max_trade_value", 0.0) or 0.0,
         max_order_qty=settings.get("max_order_qty", 0) or 0,
     )
+
+
+def _run_backtest_single_symbol(
+    symbol: str,
+    strat: dict,
+    settings: dict,
+    cash_per_symbol: float,
+    start_date: str,
+    end_date: str,
+    train_end: Optional[str],
+    test_start: Optional[str],
+    auto_liquidate: bool,
+) -> dict:
+    """Run backtest for one symbol. Returns result dict or error."""
+    try:
+        port = Portfolio()
+        port.add_cash(cash_per_symbol)
+        port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+        port.set_share_min_pct(settings.get("share_min_pct", 10))
+        port.set_commission(settings.get("commission", 0.0) or 0.0)
+        port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+        port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
+        port.set_allow_short(bool(settings.get("allow_short", True)))
+        port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
+        _apply_portfolio_constraints(port, settings)
+        port.fill_at_next_open = True
+        port.record_equity_per_bar = True
+
+        stock = get_stock(symbol)
+        block_lookahead = bool(settings.get("block_lookahead", True))
+        strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
+        bt = Backtest(strategy_obj, port)
+
+        if train_end and test_start:
+            bt.run(start_date, train_end)
+            train_val = float(port.get_value(stock.to_iloc(train_end)))
+            train_ec = list(port.equity_curve or [])
+            train_tl = list(port.trade_log or [])
+            train_metrics = compute_report(
+                trade_log=train_tl,
+                equity_curve=[{"i": 0, "v": cash_per_symbol, "time": start_date}] + train_ec,
+                initial_cash=cash_per_symbol,
+            )
+            port = Portfolio()
+            port.add_cash(cash_per_symbol)
+            port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+            port.set_share_min_pct(settings.get("share_min_pct", 10))
+            port.set_commission(settings.get("commission", 0.0) or 0.0)
+            port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+            port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
+            port.set_allow_short(bool(settings.get("allow_short", True)))
+            port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
+            _apply_portfolio_constraints(port, settings)
+            port.fill_at_next_open = True
+            port.record_equity_per_bar = True
+            strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
+            bt = Backtest(strategy_obj, port)
+            bt.run(test_start, end_date)
+            test_ec = list(port.equity_curve or [])
+            test_tl = list(port.trade_log or [])
+            test_metrics = compute_report(
+                trade_log=test_tl,
+                equity_curve=[{"i": 0, "v": cash_per_symbol, "time": test_start}] + test_ec,
+                initial_cash=cash_per_symbol,
+            )
+        else:
+            bt.run(start_date, end_date)
+            train_metrics = None
+            test_metrics = None
+
+        if auto_liquidate:
+            pos = port.get_position(stock)
+            if pos is not None:
+                qty0 = float(pos.get("quantity") or 0)
+                if qty0 != 0:
+                    end_iloc = stock.to_iloc(end_date)
+                    port.exit_position(stock, abs(qty0), end_iloc)
+
+        end_iloc = stock.to_iloc(end_date)
+        end_val = float(port.get_value(end_iloc))
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "end_val": end_val,
+            "equity_curve": list(port.equity_curve or []),
+            "trade_log": list(port.trade_log or []),
+            "train_metrics": train_metrics if train_end else None,
+            "test_metrics": test_metrics if test_start else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Strategy run failed for %s: %s", symbol, e)
+        return {"ok": False, "symbol": symbol, "error": str(e)}
 
 
 def save_portfolio(user_id: str, port: Portfolio, settings: dict):
@@ -608,97 +708,69 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
         train_end = None
         test_start = None
 
+    auto_liquidate = bool(settings.get("auto_liquidate_end", True))
+    max_workers = min(8, max(1, len(symbols)))
+    symbol_to_result: dict[str, dict] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {
+            ex.submit(
+                _run_backtest_single_symbol,
+                symbol,
+                strat,
+                settings,
+                cash_per_symbol,
+                req.start_date,
+                req.end_date,
+                train_end,
+                test_start,
+                auto_liquidate,
+            ): symbol
+            for symbol in symbols
+        }
+        for fut in as_completed(futures):
+            symbol = futures[fut]
+            try:
+                r = fut.result()
+                symbol_to_result[symbol] = r
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("Strategy run failed for %s: %s", symbol, e)
+                symbol_to_result[symbol] = {"ok": False, "symbol": symbol, "error": str(e)}
+
+    # Preserve symbol order for results, combined_trade_log, portfolio_equity_curves
     results = []
     combined_trade_log = []
-    portfolio_equity_curves = []  # list of (equity_curve, trade_log) per symbol
+    portfolio_equity_curves = []
     total_end_value = 0.0
     train_metrics = None
     test_metrics = None
 
     for symbol in symbols:
-        try:
-            port = Portfolio()
-            port.add_cash(cash_per_symbol)
-            port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-            port.set_share_min_pct(settings.get("share_min_pct", 10))
-            port.set_commission(settings.get("commission", 0.0) or 0.0)
-            port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
-            port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
-            port.set_allow_short(bool(settings.get("allow_short", True)))
-            port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
-            _apply_portfolio_constraints(port, settings)
-            port.fill_at_next_open = True
-            port.record_equity_per_bar = True
-
-            stock = get_stock(symbol)
-            block_lookahead = bool(settings.get("block_lookahead", True))
-            strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
-            bt = Backtest(strategy_obj, port)
-
-            if train_end and test_start:
-                # Walk-forward: train then test (OOS)
-                bt.run(req.start_date, train_end)
-                train_val = float(port.get_value(stock.to_iloc(train_end)))
-                train_ec = list(port.equity_curve or [])
-                train_tl = list(port.trade_log or [])
-                if train_metrics is None:
-                    train_metrics = compute_report(
-                        trade_log=train_tl,
-                        equity_curve=[{"i": 0, "v": cash_per_symbol, "time": req.start_date}] + train_ec,
-                        initial_cash=cash_per_symbol,
-                    )
-                # Fresh portfolio for test period
-                port = Portfolio()
-                port.add_cash(cash_per_symbol)
-                port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-                port.set_share_min_pct(settings.get("share_min_pct", 10))
-                port.set_commission(settings.get("commission", 0.0) or 0.0)
-                port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
-                port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
-                port.set_allow_short(bool(settings.get("allow_short", True)))
-                port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
-                _apply_portfolio_constraints(port, settings)
-                port.fill_at_next_open = True
-                port.record_equity_per_bar = True
-                strategy_obj = create_strategy_from_code(stock, port, strat["code"], block_lookahead=block_lookahead)
-                bt = Backtest(strategy_obj, port)
-                bt.run(test_start, req.end_date)
-            else:
-                bt.run(req.start_date, req.end_date)
-
-            if settings.get("auto_liquidate_end", True):
-                pos = port.get_position(stock)
-                if pos is not None:
-                    qty0 = float(pos.get("quantity") or 0)
-                    if qty0 != 0:
-                        end_iloc = stock.to_iloc(req.end_date)
-                        port.exit_position(stock, abs(qty0), end_iloc)
-
-            end_iloc = stock.to_iloc(req.end_date)
-            end_val = float(port.get_value(end_iloc))
-            total_end_value += end_val
+        r = symbol_to_result.get(symbol)
+        if not r or not r.get("ok"):
             results.append({
                 "strategy": strat["name"],
                 "symbol": symbol,
-                "start_value": cash_per_symbol,
-                "end_value": end_val,
-                "pnl": end_val - cash_per_symbol,
+                "error": (r or {}).get("error", "Unknown error"),
             })
-            combined_trade_log.extend(port.trade_log or [])
-            portfolio_equity_curves.append((list(port.equity_curve or []), list(port.trade_log or [])))
-            if train_end and test_start and test_metrics is None:
-                test_ec = list(port.equity_curve or [])
-                test_tl = list(port.trade_log or [])
-                test_metrics = compute_report(
-                    trade_log=test_tl,
-                    equity_curve=[{"i": 0, "v": cash_per_symbol, "time": test_start}] + test_ec,
-                    initial_cash=cash_per_symbol,
-                )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning("Strategy run failed for %s: %s", symbol, e)
-            results.append({"strategy": strat["name"], "symbol": symbol, "error": str(e)})
+            continue
+        total_end_value += r["end_val"]
+        results.append({
+            "strategy": strat["name"],
+            "symbol": symbol,
+            "start_value": cash_per_symbol,
+            "end_value": r["end_val"],
+            "pnl": r["end_val"] - cash_per_symbol,
+        })
+        combined_trade_log.extend(r.get("trade_log") or [])
+        portfolio_equity_curves.append((r.get("equity_curve") or [], r.get("trade_log") or []))
+        if train_end and test_start:
+            if train_metrics is None and r.get("train_metrics"):
+                train_metrics = r["train_metrics"]
+            if test_metrics is None and r.get("test_metrics"):
+                test_metrics = r["test_metrics"]
 
     port_value = total_end_value
     initial = initial_total

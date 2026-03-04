@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 import numpy as np
 import pandas as pd
 
@@ -74,6 +74,49 @@ def _build_synthetic_ohlc(
     return df
 
 
+def _run_single_path(args: tuple) -> tuple[float | None, list[float] | None]:
+    """Run one Monte Carlo path in parallel."""
+    (seed, start_price, returns, horizon, symbol, strategy_code, settings, block_lookahead) = args
+    try:
+        df = _build_synthetic_ohlc(start_price, returns, horizon, seed=seed)
+        synthetic_stock = Stock(symbol=symbol, df=df)
+        port = Portfolio()
+        cash = float(settings.get("initial_cash", 100000))
+        port.add_cash(cash)
+        port.set_slippage(settings.get("slippage", 0.0) or 0.0)
+        port.set_share_min_pct(settings.get("share_min_pct", 10))
+        port.set_commission(settings.get("commission", 0.0) or 0.0)
+        port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
+        port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
+        port.set_allow_short(bool(settings.get("allow_short", True)))
+        port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
+        port.fill_at_next_open = True
+        port.record_equity_per_bar = True
+        port.set_constraints(
+            max_positions=settings.get("max_positions", 0) or 0,
+            max_position_pct=settings.get("max_position_pct", 0.0) or 0.0,
+            min_cash_reserve_pct=settings.get("min_cash_reserve_pct", 0.0) or 0.0,
+            min_trade_value=settings.get("min_trade_value", 0.0) or 0.0,
+            max_trade_value=settings.get("max_trade_value", 0.0) or 0.0,
+            max_order_qty=settings.get("max_order_qty", 0) or 0,
+        )
+        strategy_obj = create_strategy_from_code(
+            synthetic_stock, port, strategy_code, block_lookahead=block_lookahead
+        )
+        bt = Backtest(strategy_obj, port)
+        curve: list[float] = []
+
+        def on_bar(idx: int, val: float):
+            curve.append(val)
+
+        first_date = df.index[0].strftime("%Y-%m-%d")
+        last_date = df.index[-1].strftime("%Y-%m-%d")
+        bt.run(first_date, last_date, on_bar=on_bar)
+        return (float(port.get_value()), curve if curve else None)
+    except Exception:
+        return (None, None)
+
+
 def run_montecarlo(
     stock: Stock,
     strategy_code: str,
@@ -94,55 +137,31 @@ def run_montecarlo(
     initial_cash = float(settings.get("initial_cash", 100000))
     cash_per_sim = initial_cash
 
-    end_values = []
-    equity_by_day: list[list[float]] = []  # per sim: [v0, v1, ..., v_horizon]
+    end_values: list[float] = []
+    equity_by_day: list[list[float]] = []
     errors = 0
 
-    for i in range(n_sims):
-        try:
-            df = _build_synthetic_ohlc(start_price, returns, horizon, seed=i)
-            synthetic_stock = Stock(symbol=stock.symbol, df=df)
+    returns_arr = np.asarray(returns, dtype=float)
+    args_list = [
+        (i, start_price, returns_arr, horizon, stock.symbol, strategy_code, settings, block_lookahead)
+        for i in range(n_sims)
+    ]
 
-            port = Portfolio()
-            port.add_cash(cash_per_sim)
-            port.set_slippage(settings.get("slippage", 0.0) or 0.0)
-            port.set_share_min_pct(settings.get("share_min_pct", 10))
-            port.set_commission(settings.get("commission", 0.0) or 0.0)
-            port.set_commission_per_order(settings.get("commission_per_order", 0.0) or 0.0)
-            port.set_commission_per_share(settings.get("commission_per_share", 0.0) or 0.0)
-            port.set_allow_short(bool(settings.get("allow_short", True)))
-            port.set_short_margin_requirement(settings.get("short_margin_requirement", 1.5) or 1.5)
-            port.fill_at_next_open = True
-            port.record_equity_per_bar = True
-            port.set_constraints(
-                max_positions=settings.get("max_positions", 0) or 0,
-                max_position_pct=settings.get("max_position_pct", 0.0) or 0.0,
-                min_cash_reserve_pct=settings.get("min_cash_reserve_pct", 0.0) or 0.0,
-                min_trade_value=settings.get("min_trade_value", 0.0) or 0.0,
-                max_trade_value=settings.get("max_trade_value", 0.0) or 0.0,
-                max_order_qty=settings.get("max_order_qty", 0) or 0,
-            )
-
-            strategy_obj = create_strategy_from_code(
-                synthetic_stock, port, strategy_code, block_lookahead=block_lookahead
-            )
-            bt = Backtest(strategy_obj, port)
-            first_date = df.index[0].strftime("%Y-%m-%d")
-            last_date = df.index[-1].strftime("%Y-%m-%d")
-
-            curve: list[float] = []
-
-            def on_bar(idx: int, val: float):
-                curve.append(val)
-
-            bt.run(first_date, last_date, on_bar=on_bar)
-            if curve:
-                equity_by_day.append(curve)
-            end_val = float(port.get_value())
-            end_values.append(end_val)
-        except Exception as e:
-            logger.debug("Monte Carlo sim %d failed: %s", i, e)
-            errors += 1
+    max_workers = min(n_sims, 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_run_single_path, a): a for a in args_list}
+        for future in as_completed(futures):
+            try:
+                end_val, curve = future.result()
+                if end_val is not None:
+                    end_values.append(end_val)
+                    if curve:
+                        equity_by_day.append(curve)
+                else:
+                    errors += 1
+            except Exception as e:
+                logger.debug("Monte Carlo sim failed: %s", e)
+                errors += 1
 
     # Build fan chart data: percentiles at each day (include day 0 = initial)
     fan_data: list[dict] = []

@@ -10,6 +10,13 @@ function emit() {
   listeners.forEach((fn) => fn(show))
 }
 
+function setShow(value) {
+  if (show !== value) {
+    show = value
+    emit()
+  }
+}
+
 export function subscribe(fn) {
   listeners.add(fn)
   fn(show)
@@ -34,7 +41,7 @@ export function onRequestStart(skipLoading = false) {
   if (!showTimer) {
     showTimer = setTimeout(() => {
       showTimer = null
-      setShow(true)
+      if (!suppress) setShow(true)
     }, DELAY_MS)
   }
 }
