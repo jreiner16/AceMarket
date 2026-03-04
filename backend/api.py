@@ -125,6 +125,12 @@ async def add_security_headers(request: Request, call_next):
 _stock_cache: dict[str, dict] = {}
 _stock_cache_lock = Lock()
 
+# Chart response cache: key -> {ts, data}. TTL 5 min.
+_chart_cache: dict[str, dict] = {}
+_chart_cache_lock = Lock()
+CHART_CACHE_TTL = 300
+CHART_CACHE_MAX = 32
+
 
 def _validate_symbol(symbol: str) -> str:
     """Validate and normalize symbol. Raises HTTPException if invalid."""
@@ -420,8 +426,19 @@ def get_stock_data(
     end_date: Optional[str] = None,
     limit: int = Query(5000, ge=1, le=10000),
 ) -> dict:
-    """Get OHLC data for charting. Fetches fresh data (bypasses cache) for full history."""
+    """Get OHLC data for charting. Cached 5 min to avoid repeated Yahoo fetches."""
     symbol = _validate_symbol(symbol)
+    cache_key = f"{symbol}|{start_date or ''}|{end_date or ''}|{limit}"
+    now = time.time()
+    with _chart_cache_lock:
+        if cache_key in _chart_cache:
+            entry = _chart_cache[cache_key]
+            if now - float(entry.get("ts", 0)) < CHART_CACHE_TTL:
+                return entry["data"]
+        expired = [k for k, v in _chart_cache.items() if now - float(v.get("ts", 0)) > CHART_CACHE_TTL]
+        for k in expired:
+            _chart_cache.pop(k, None)
+
     stock = Stock(symbol, start_date=start_date, end_date=end_date)
     df = stock.df
     if df.empty:
@@ -435,13 +452,19 @@ def get_stock_data(
     lows = df["Low"].astype(float).tolist()
     closes = df["Close"].astype(float).tolist()
     candles = [Candle(time=t, open=o, high=h, low=l, close=c) for t, o, h, l, c in zip(times, opens, highs, lows, closes)]
-    return {
+    data = {
         "symbol": stock.symbol,
         "candles": candles,
         "sma": stock.sma(14)[-len(candles):],
         "ema": stock.ema(14)[-len(candles):],
         "rsi": stock.rsi(14)[-len(candles):],
     }
+    with _chart_cache_lock:
+        if len(_chart_cache) >= CHART_CACHE_MAX:
+            lru = min(_chart_cache.items(), key=lambda kv: float(kv[1].get("ts", 0)))[0]
+            _chart_cache.pop(lru, None)
+        _chart_cache[cache_key] = {"ts": now, "data": data}
+    return data
 
 
 @app.get("/api/v1/stock/{symbol}/price")
@@ -449,6 +472,67 @@ def get_stock_price(symbol: str, user_id: str = Depends(verify_token)) -> dict:
     """Get current (latest) price."""
     stock = get_stock(symbol)
     return {"symbol": symbol, "price": float(stock.price())}
+
+
+@app.get("/api/v1/bootstrap")
+def bootstrap_endpoint(user_id: str = Depends(verify_token)) -> dict:
+    """Single call to load portfolio, runs, and watchlist. Reduces round-trips on app load."""
+    settings = db.get_settings(user_id)
+    watchlist = settings.get("watchlist", ["AAPL", "MSFT", "GOOGL", "TSLA"])
+    runs = db.get_runs(user_id, limit=MAX_RUNS_PER_USER)
+    port = get_portfolio(user_id)
+    initial = settings["initial_cash"]
+    positions = []
+    for p in port.positions():
+        stock = p["stock"]
+        quantity = float(p["quantity"])
+        symbol = stock.symbol
+        price = float(stock.price())
+        avg_price = float(p.get("avg_price") or 0.0)
+        realized_pnl = float(p.get("realized_pnl") or 0.0)
+        if quantity > 0:
+            pnl = (price - avg_price) * quantity
+        else:
+            pnl = (avg_price - price) * abs(quantity)
+        pnl_pct = (pnl / (avg_price * abs(quantity)) * 100) if avg_price and abs(quantity) else 0.0
+        positions.append(
+            Position(
+                symbol=symbol,
+                quantity=abs(quantity),
+                side="long" if quantity > 0 else "short",
+                avg_price=avg_price,
+                current_price=price,
+                pnl=pnl,
+                pnl_pct=pnl_pct,
+                realized_pnl=realized_pnl,
+            )
+        )
+    value = port.get_value()
+    trade_log = port.trade_log
+    equity_curve = [{"i": 0, "v": initial}] + port.equity_curve
+    if not equity_curve or abs(equity_curve[-1]["v"] - value) > 0.01:
+        equity_curve.append({"i": max(1, len(port.trade_log)), "v": value})
+    equity_curve_enriched = []
+    for pt in equity_curve:
+        q = dict(pt)
+        i = q.get("i")
+        if isinstance(i, int) and i > 0 and i - 1 < len(trade_log):
+            q["time"] = trade_log[i - 1].get("time")
+        equity_curve_enriched.append(q)
+    metrics = compute_report(trade_log=trade_log, equity_curve=equity_curve_enriched, initial_cash=initial)
+    portfolio = {
+        "cash": port.cash,
+        "reserved_cash": port.get_reserved_cash(),
+        "buying_power": port.get_buying_power(),
+        "short_exposure": port.get_short_market_value(),
+        "value": value,
+        "positions": positions,
+        "trade_log": trade_log,
+        "equity_curve": equity_curve_enriched,
+        "initial_cash": initial,
+        "metrics": metrics,
+    }
+    return {"portfolio": portfolio, "runs": runs, "watchlist": watchlist}
 
 
 @app.get("/api/v1/watchlist")
@@ -468,24 +552,43 @@ def update_watchlist(req: WatchlistUpdate, user_id: str = Depends(verify_token))
     return {"watchlist": wl}
 
 
+def _get_quote_for_symbol(sym: str) -> dict:
+    """Fetch quote for one symbol. Used by parallel quote fetcher."""
+    try:
+        stock = get_stock(sym)
+        price = float(stock.price())
+        prev_close = float(stock.df["Close"].iloc[-2]) if len(stock.df) >= 2 else price
+        change = price - prev_close
+        change_pct = (change / prev_close * 100) if prev_close else 0
+        return {"symbol": sym, "price": price, "prev_close": prev_close, "change": change, "change_pct": change_pct}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug("Quote failed for %s: %s", sym, e)
+        return {"symbol": sym, "price": None, "prev_close": None, "change": None, "change_pct": None}
+
+
 @app.get("/api/v1/watchlist/quotes")
 def get_watchlist_quotes(symbols: str, user_id: str = Depends(verify_token)) -> list[dict]:
-    """Get price and change from previous close for each symbol."""
-    result = []
-    for sym in (s.strip().upper() for s in symbols.split(",") if s.strip()):
-        try:
-            stock = get_stock(sym)
-            price = float(stock.price())
-            prev_close = float(stock.df["Close"].iloc[-2]) if len(stock.df) >= 2 else price
-            change = price - prev_close
-            change_pct = (change / prev_close * 100) if prev_close else 0
-            result.append({"symbol": sym, "price": price, "prev_close": prev_close, "change": change, "change_pct": change_pct})
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.debug("Quote failed for %s: %s", sym, e)
-            result.append({"symbol": sym, "price": None, "prev_close": None, "change": None, "change_pct": None})
-    return result
+    """Get price and change from previous close for each symbol. Fetches in parallel."""
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not syms:
+        return []
+    result = [None] * len(syms)
+    sym_to_idx = {s: i for i, s in enumerate(syms)}
+    max_workers = min(8, len(syms))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_get_quote_for_symbol, s): s for s in syms}
+        for fut in as_completed(futures):
+            sym = futures[fut]
+            try:
+                q = fut.result()
+                result[sym_to_idx[sym]] = q
+            except HTTPException:
+                raise
+            except Exception:
+                result[sym_to_idx[sym]] = {"symbol": sym, "price": None, "prev_close": None, "change": None, "change_pct": None}
+    return [r for r in result if r is not None]
 
 
 @app.get("/api/v1/portfolio")

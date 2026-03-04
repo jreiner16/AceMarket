@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { subscribe } from './consoleStore'
 import { useAuth } from './useAuth'
-import { useUserData } from './useUserData'
+import { useAppData } from './useAppData'
 import { SplashPage } from './SplashPage'
 import { StockChart } from './StockChart'
 import { OrderPanel } from './OrderPanel'
@@ -25,7 +25,7 @@ const MAX_REPORT = 400
 
 function App() {
   const { user, loading: authLoading, signOut } = useAuth()
-  const { watchlist, setWatchlist } = useUserData(user)
+  const { portfolio, runs, watchlist, setWatchlist, loading: appDataLoading, refresh, fetchRuns } = useAppData(user)
 
   const [selectedSymbol, setSelectedSymbol] = useState(null)
   const [price, setPrice] = useState(null)
@@ -71,9 +71,14 @@ function App() {
     }
   }, [watchlist, selectedSymbol, setWatchlist, setSelectedSymbol])
 
-  const handleOrder = useCallback(() => {
+  const handleRefresh = useCallback(() => {
     setPortfolioRefresh((r) => r + 1)
-  }, [])
+    refresh()
+  }, [refresh])
+
+  const handleOrder = useCallback(() => {
+    handleRefresh()
+  }, [handleRefresh])
 
   const handleResizeLeft = useCallback((dx) => {
     setLeftWidth((w) => Math.min(MAX_LEFT, Math.max(MIN_LEFT, w + dx)))
@@ -223,7 +228,12 @@ function App() {
             </div>
             {reportTab === 'report' ? (
               <ReportPanel
+                portfolio={portfolio}
+                runs={runs}
+                loading={appDataLoading}
                 refresh={portfolioRefresh}
+                onRefresh={handleRefresh}
+                fetchRuns={fetchRuns}
                 focusRunId={focusRunId}
                 onFocusRunConsumed={handleFocusRunConsumed}
                 onMatchFrame={setChartDateRange}
@@ -270,14 +280,14 @@ function App() {
                 price={price}
                 onOrder={handleOrder}
               />
-              <PortfolioPanel refresh={portfolioRefresh} />
+              <PortfolioPanel portfolio={portfolio} loading={appDataLoading} refresh={portfolioRefresh} onRefresh={handleRefresh} />
             </>
           ) : !strategyMaximized ? (
             <div className="sidebar-right-strategies">
               <StrategyPanel
                 watchlist={watchlist}
                 refresh={portfolioRefresh}
-                onRefresh={() => setPortfolioRefresh((r) => r + 1)}
+                onRefresh={handleRefresh}
                 onRunCompleted={(id) => { setFocusRunId(id); setReportTab('report'); }}
                 compact
               />
@@ -303,7 +313,7 @@ function App() {
             <StrategyPanel
               watchlist={watchlist}
               refresh={portfolioRefresh}
-              onRefresh={() => setPortfolioRefresh((r) => r + 1)}
+              onRefresh={handleRefresh}
               onRunCompleted={(id) => { setFocusRunId(id); setReportTab('report'); }}
               compact
             />
@@ -314,7 +324,7 @@ function App() {
       <SettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onClearHistory={() => setPortfolioRefresh((r) => r + 1)}
+        onClearHistory={handleRefresh}
         user={user}
       />
       <ConfirmDialog

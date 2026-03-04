@@ -138,9 +138,7 @@ function pickView(portfolio, run) {
   }
 }
 
-export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFrame }) {
-  const [portfolio, setPortfolio] = useState(null)
-  const [runs, setRuns] = useState([])
+export function ReportPanel({ portfolio, runs, loading, refresh, onRefresh, fetchRuns, focusRunId, onFocusRunConsumed, onMatchFrame }) {
   const [mode, setMode] = useState('live') // 'live' | 'run'
   const [runId, setRunId] = useState('')
   const [runDetail, setRunDetail] = useState(null)
@@ -156,20 +154,6 @@ export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFr
   const [sortKey, setSortKey] = useState('index')
   const [sortDir, setSortDir] = useState('desc')
 
-  const fetchRuns = useCallback(() => {
-    apiGet('/runs')
-      .then((d) => setRuns(d.runs || []))
-      .catch(() => setRuns([]))
-  }, [])
-
-  useEffect(() => {
-    apiGet('/portfolio')
-      .then(setPortfolio)
-      .catch(() => setPortfolio(null))
-
-    fetchRuns()
-  }, [refresh, fetchRuns])
-
   useEffect(() => {
     if (focusRunId != null && String(focusRunId).trim()) {
       const id = String(focusRunId)
@@ -177,7 +161,7 @@ export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFr
         setMode('run')
         setRunId(id)
       })
-      fetchRuns() // refetch so new run appears in list
+      fetchRuns?.() // refetch so new run appears in list
       onFocusRunConsumed?.()
     }
   }, [focusRunId, fetchRuns, onFocusRunConsumed])
@@ -284,9 +268,9 @@ export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFr
     setConfirmClear(false)
     try {
       await apiDelete('/runs')
-      setRuns([])
       setRunId('')
       setRunDetail(null)
+      onRefresh?.()
     } catch {
       // ignore
     }
@@ -294,6 +278,10 @@ export function ReportPanel({ refresh, focusRunId, onFocusRunConsumed, onMatchFr
 
   const headlinePnl = (equity?.pnl ?? (Number(view.value) - Number(view.initialCash)))
   const headlinePnlOk = Number.isFinite(Number(headlinePnl))
+
+  if (loading) {
+    return <div className="report-panel">Loading…</div>
+  }
 
   return (
     <div className="report-panel report-legacy">

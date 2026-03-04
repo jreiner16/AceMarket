@@ -4,6 +4,11 @@ import { onRequestStart, onRequestEnd } from './coldStartStore'
 
 const SKIP_LOADING_PATHS = ['/strategies/montecarlo', '/strategies/run']
 
+// Stock chart cache: key -> { ts, data }. TTL 5 min. Switching symbols is instant when cached.
+const STOCK_CACHE_TTL_MS = 5 * 60 * 1000
+const stockCache = new Map()
+const STOCK_CACHE_MAX = 20
+
 // Production: set VITE_API_BASE to full API URL (e.g. https://api.yoursite.com/api/v1)
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '') || '/api/v1'
 
@@ -21,6 +26,17 @@ async function getAuthHeaders() {
 
 export async function apiFetch(path, options = {}) {
   const skipLoading = SKIP_LOADING_PATHS.some((p) => path.includes(p))
+  const isStockGet = options.method !== 'POST' && options.method !== 'PUT' && options.method !== 'DELETE' && path.includes('/stock/')
+  const cacheKey = isStockGet ? path : null
+
+  if (cacheKey) {
+    const now = Date.now()
+    const hit = stockCache.get(cacheKey)
+    if (hit && now - hit.ts < STOCK_CACHE_TTL_MS) {
+      return new Response(JSON.stringify(hit.data), { headers: { 'Content-Type': 'application/json' } })
+    }
+  }
+
   onRequestStart(skipLoading)
   try {
     const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
@@ -44,6 +60,17 @@ export async function apiFetch(path, options = {}) {
         err.detail = text
       }
       throw err
+    }
+
+    if (cacheKey) {
+      const data = await res.clone().json()
+      const now = Date.now()
+      if (stockCache.size >= STOCK_CACHE_MAX) {
+        const oldest = [...stockCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0]
+        if (oldest) stockCache.delete(oldest[0])
+      }
+      stockCache.set(cacheKey, { ts: now, data })
+      return res
     }
     return res
   } finally {

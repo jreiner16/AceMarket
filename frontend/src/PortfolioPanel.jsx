@@ -1,20 +1,11 @@
 // PortfolioPanel -- display of portfolio and positions
-import { useState, useEffect } from 'react'
-import { apiGet, apiPost } from './apiClient'
+import { useState } from 'react'
+import { apiPost } from './apiClient'
 
-export function PortfolioPanel({ refresh }) {
-  const [portfolio, setPortfolio] = useState(null)
+export function PortfolioPanel({ portfolio, loading, refresh, onRefresh }) {
   const [closingSymbol, setClosingSymbol] = useState(null)
   const [closeQty, setCloseQty] = useState('')
   const [closeError, setCloseError] = useState(null)
-
-  const load = () => {
-    apiGet('/portfolio')
-      .then(setPortfolio)
-      .catch(() => setPortfolio(null))
-  }
-
-  useEffect(load, [refresh])
 
   const handleCloseClick = (symbol, quantity) => {
     setClosingSymbol({ symbol, maxQty: quantity })
@@ -43,13 +34,13 @@ export function PortfolioPanel({ refresh }) {
     try {
       await apiPost('/portfolio/position/close', { symbol: closingSymbol.symbol, quantity: Number(qty) })
       handleCloseCancel()
-      load()
+      onRefresh?.()
     } catch (err) {
       setCloseError(err.detail || err.message || 'Failed to close')
     }
   }
 
-  if (!portfolio) return <div className="portfolio-panel">Loading...</div>
+  if (loading || !portfolio) return <div className="portfolio-panel">Loading…</div>
 
   return (
     <div className="portfolio-panel">
