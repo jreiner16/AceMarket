@@ -10,7 +10,7 @@ async function getAuthHeaders() {
   if (!user) {
     throw new Error('Not authenticated')
   }
-  const token = await user.getIdToken()
+  const token = await user.getIdToken(true)
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,

@@ -51,4 +51,5 @@ backend/acemarket.db
 backend/.env
 backend/.env.*.local
 backend/*-firebase-adminsdk-*.json
+backend/firebase-base64.txt
 *.pem

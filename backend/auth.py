@@ -1,4 +1,5 @@
 """Firebase API authentication"""
+import base64
 import json
 import os
 import logging
@@ -14,6 +15,28 @@ security = HTTPBearer(auto_error=False)
 _firebase_app = None
 
 
+def _load_credentials_json():
+    """Load credentials from FIREBASE_CREDENTIALS_JSON or FIREBASE_CREDENTIALS_BASE64."""
+    cred_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+    cred_b64 = os.environ.get("FIREBASE_CREDENTIALS_BASE64")
+    raw = None
+    if cred_b64:
+        try:
+            raw = base64.b64decode(cred_b64).decode("utf-8")
+        except Exception as e:
+            logger.error("Invalid FIREBASE_CREDENTIALS_BASE64: %s", e)
+            raise
+    elif cred_json:
+        raw = cred_json
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error("Invalid credentials JSON: %s", e)
+            raise
+    return None
+
+
 def _get_firebase_app():
     global _firebase_app
     if _firebase_app is None:
@@ -22,18 +45,15 @@ def _get_firebase_app():
             from firebase_admin import credentials
             if not firebase_admin._apps:
                 cred = None
-                cred_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
-                if cred_json:
-                    try:
-                        data = json.loads(cred_json)
-                        cred = credentials.Certificate(data)
-                    except json.JSONDecodeError as e:
-                        logger.error("Invalid FIREBASE_CREDENTIALS_JSON: %s", e)
-                        raise
+                data = _load_credentials_json()
+                if data:
+                    cred = credentials.Certificate(data)
+                    logger.info("Firebase initialized from env credentials (project: %s)", data.get("project_id", "?"))
                 else:
                     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
                     if cred_path and os.path.exists(cred_path):
                         cred = credentials.Certificate(cred_path)
+                        logger.info("Firebase initialized from file: %s", cred_path)
                     else:
                         cred = None
                 if cred:
@@ -78,7 +98,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
             raise HTTPException(status_code=401, detail="Invalid token payload")
         return uid
     except Exception as e:
-        logger.warning("Token verification failed: %s", e)
+        logger.warning("Token verification failed: %s: %s", type(e).__name__, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
