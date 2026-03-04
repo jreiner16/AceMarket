@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { apiPost } from './apiClient'
 
-export function PortfolioPanel({ portfolio, loading, refresh, onRefresh }) {
+export function PortfolioPanel({ portfolio, loading, onRefresh }) {
   const [closingSymbol, setClosingSymbol] = useState(null)
   const [closeQty, setCloseQty] = useState('')
   const [closeError, setCloseError] = useState(null)

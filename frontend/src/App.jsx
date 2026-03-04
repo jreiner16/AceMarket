@@ -237,7 +237,6 @@ function App() {
                 portfolio={portfolio}
                 runs={runs}
                 loading={appDataLoading}
-                refresh={portfolioRefresh}
                 onRefresh={handleRefresh}
                 fetchRuns={fetchRuns}
                 focusRunId={focusRunId}
@@ -286,7 +285,7 @@ function App() {
                 price={price}
                 onOrder={handleOrder}
               />
-              <PortfolioPanel portfolio={portfolio} loading={appDataLoading} refresh={portfolioRefresh} onRefresh={handleRefresh} />
+              <PortfolioPanel portfolio={portfolio} loading={appDataLoading} onRefresh={handleRefresh} />
             </>
           ) : !strategyMaximized ? (
             <div className="sidebar-right-strategies">

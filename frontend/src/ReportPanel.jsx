@@ -1,5 +1,5 @@
 // ReportPanel -- display of portfolio and backtesting metrics/reports as well as Monte Carlo simulation results
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
 import { FanChart } from './FanChart'
 import { apiGet, apiDelete } from './apiClient'
@@ -138,7 +138,7 @@ function pickView(portfolio, run) {
   }
 }
 
-export function ReportPanel({ portfolio, runs, loading, refresh, onRefresh, fetchRuns, focusRunId, onFocusRunConsumed, onMatchFrame }) {
+export function ReportPanel({ portfolio, runs, loading, onRefresh, fetchRuns, focusRunId, onFocusRunConsumed, onMatchFrame }) {
   const [mode, setMode] = useState('live') // 'live' | 'run'
   const [runId, setRunId] = useState('')
   const [runDetail, setRunDetail] = useState(null)

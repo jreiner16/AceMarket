@@ -62,14 +62,16 @@ export function useAppData(user) {
 
   useEffect(() => {
     if (!user) {
-      setPortfolio(null)
-      setRuns([])
-      setWatchlistState(DEFAULT_WATCHLIST)
-      setLoading(false)
+      queueMicrotask(() => {
+        setPortfolio(null)
+        setRuns([])
+        setWatchlistState(DEFAULT_WATCHLIST)
+        setLoading(false)
+      })
       return
     }
-    fetchBootstrap()
-  }, [user?.uid, fetchBootstrap])
+    queueMicrotask(() => fetchBootstrap())
+  }, [user?.uid, fetchBootstrap, user])
 
   const refresh = useCallback(() => {
     fetchBootstrap()
