@@ -36,28 +36,28 @@ export function useAppData(user) {
   const pendingRef = useRef(null)
 
   const fetchBootstrap = useCallback(() => {
-    if (!user) return
+    if (!user) return Promise.resolve()
     setLoading(true)
-    // Fetch light bootstrap (fast) and portfolio (slower) in parallel
-    const bootstrapPromise = apiGet('/bootstrap')
-    const portfolioPromise = apiGet('/portfolio')
-    Promise.all([bootstrapPromise, portfolioPromise])
-      .then(([bootstrap, port]) => {
-        setRuns(bootstrap?.runs ?? [])
-        const wl = bootstrap?.watchlist
-        if (Array.isArray(wl) && wl.length > 0) {
-          setWatchlistState(wl)
-          saveToLocal(user.uid, wl)
-        }
-        if (port) setPortfolio(port)
-      })
-      .catch(() => {
-        setPortfolio(null)
-        setRuns([])
-        const local = loadFromLocal(user?.uid)
-        if (local?.length) setWatchlistState(local)
-      })
-      .finally(() => setLoading(false))
+    // Fetch separately so portfolio failure (e.g. timeout) doesn't wipe runs
+    const bootstrapPromise = apiGet('/bootstrap').then((bootstrap) => {
+      setRuns(bootstrap?.runs ?? [])
+      const wl = bootstrap?.watchlist
+      if (Array.isArray(wl) && wl.length > 0) {
+        setWatchlistState(wl)
+        saveToLocal(user.uid, wl)
+      }
+      return bootstrap
+    }).catch(() => {
+      setRuns([])
+      const local = loadFromLocal(user?.uid)
+      if (local?.length) setWatchlistState(local)
+    })
+    const portfolioPromise = apiGet('/portfolio').then((port) => {
+      if (port) setPortfolio(port)
+    }).catch(() => {
+      setPortfolio(null)
+    })
+    return Promise.allSettled([bootstrapPromise, portfolioPromise]).finally(() => setLoading(false))
   }, [user])
 
   useEffect(() => {

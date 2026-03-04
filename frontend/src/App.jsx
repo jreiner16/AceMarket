@@ -79,7 +79,7 @@ function App() {
 
   const handleRefresh = useCallback(() => {
     setPortfolioRefresh((r) => r + 1)
-    refresh()
+    return refresh()
   }, [refresh])
 
   const handleOrder = useCallback(() => {

@@ -219,7 +219,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
           const data = await apiGet(`/strategies/montecarlo/${job_id}`)
           if (data.status === 'pending') continue
           setMonteCarloResults(data)
-          onRefresh?.()
+          await onRefresh?.()
           if (data?.run_id != null) onRunCompleted?.(data.run_id)
           break
         }
@@ -260,7 +260,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
         const data = await apiGet(`/strategies/run/${job_id}`)
         if (data.status === 'pending') continue
         setRunResults(data.results || [])
-        onRefresh?.()
+        await onRefresh?.()
         if (data?.run_id != null) onRunCompleted?.(data.run_id)
         break
       }
