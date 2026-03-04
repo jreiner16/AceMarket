@@ -1,9 +1,10 @@
-// coldStartStore -- show loading modal when API is slow (e.g. cold start)
+// coldStartStore -- simple loading indicator when API is slow
 const listeners = new Set()
 let show = false
 let pendingCount = 0
 let showTimer = null
-const DELAY_MS = 0
+let suppress = false
+const DELAY_MS = 3000
 
 function emit() {
   listeners.forEach((fn) => fn(show))
@@ -19,18 +20,18 @@ export function getShow() {
   return show
 }
 
-function setShow(value) {
-  if (show !== value) {
-    show = value
+export function setSuppress(value) {
+  suppress = value
+  if (suppress && show) {
+    show = false
     emit()
   }
 }
 
-export function onRequestStart() {
+export function onRequestStart(skipLoading = false) {
   pendingCount++
-  if (DELAY_MS === 0) {
-    setShow(true)
-  } else if (!showTimer) {
+  if (skipLoading || suppress) return
+  if (!showTimer) {
     showTimer = setTimeout(() => {
       showTimer = null
       setShow(true)
@@ -46,6 +47,6 @@ export function onRequestEnd() {
       clearTimeout(showTimer)
       showTimer = null
     }
-    setShow(false)
+    if (!suppress) setShow(false)
   }
 }

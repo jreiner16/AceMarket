@@ -1,11 +1,12 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from pydantic import BaseModel
@@ -40,6 +41,9 @@ if DISABLE_AUTH:
 
 # Rate limiting: in-memory (use Redis for multi-worker)
 _rate_limit_store: dict[str, list[float]] = {}
+
+# Monte Carlo background jobs: job_id -> { status, result?, error? }
+_montecarlo_jobs: dict[str, dict] = {}
 
 
 def _check_rate_limit(key: str, window: int, max_calls: int) -> None:
@@ -778,27 +782,22 @@ def run_strategy_endpoint(req: RunStrategyRequest, user_id: str = Depends(verify
     return {"ok": True, "results": results, "run_id": run_id}
 
 
-@app.post("/api/v1/strategies/montecarlo")
-def montecarlo_endpoint(req: MonteCarloRequest, user_id: str = Depends(verify_token)):
-    """Monte Carlo: bootstrap sample from stock's historical returns, run strategy on synthetic paths."""
-    _check_rate_limit(f"strategy:{user_id}", RATE_LIMIT_STRATEGY_WINDOW_SEC, RATE_LIMIT_STRATEGY_MAX)
-
-    strat = db.get_strategy(user_id, req.strategy_id)
-    if not strat:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    symbol = _validate_symbol(req.symbol)
-    n_sims = max(10, min(500, req.n_sims))
-    horizon = max(21, min(504, req.horizon))  # 1 month to 2 years
-
-    stock = get_stock(symbol)
-    if stock.df.empty:
-        raise HTTPException(status_code=404, detail=f"No data for {symbol}")
-
-    settings = db.get_settings(user_id)
-    block_lookahead = bool(settings.get("block_lookahead", True))
-
+def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest):
+    """Background task: run Monte Carlo and store result. Avoids Render's 30s request timeout."""
     try:
+        strat = db.get_strategy(user_id, req.strategy_id)
+        if not strat:
+            _montecarlo_jobs[job_id] = {"status": "error", "error": "Strategy not found"}
+            return
+        symbol = _validate_symbol(req.symbol)
+        n_sims = max(10, min(500, req.n_sims))
+        horizon = max(21, min(504, req.horizon))
+        stock = get_stock(symbol)
+        if stock.df.empty:
+            _montecarlo_jobs[job_id] = {"status": "error", "error": f"No data for {symbol}"}
+            return
+        settings = db.get_settings(user_id)
+        block_lookahead = bool(settings.get("block_lookahead", True))
         from montecarlo import run_montecarlo
         result = run_montecarlo(
             stock=stock,
@@ -808,46 +807,74 @@ def montecarlo_endpoint(req: MonteCarloRequest, user_id: str = Depends(verify_to
             horizon=horizon,
             block_lookahead=block_lookahead,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    initial = result["initial_cash"]
-    mean_val = result["mean"]
-    pnl = mean_val - initial
-    total_return_pct = (pnl / initial * 100) if initial else 0
-
-    run_data = {
-        "strategy_id": req.strategy_id,
-        "strategy": strat["name"] + " (MC)",
-        "symbols": [symbol],
-        "start_date": "Monte Carlo",
-        "end_date": f"{horizon}d",
-        "results": [{"symbol": symbol, "start_value": initial, "end_value": mean_val, "pnl": pnl}],
-        "portfolio": {
-            "run_type": "montecarlo",
-            "initial_cash": initial,
-            "value": mean_val,
-            "fan_data": result.get("fan_data", []),
-            "percentiles": result.get("percentiles", {}),
-            "n_sims": result.get("n_success", 0),
-            "n_errors": result.get("n_errors", 0),
-            "horizon": horizon,
-            "prob_profit_pct": result.get("prob_profit_pct", 0),
-        },
-        "metrics": {
-            "equity": {
-                "start_value": initial,
-                "end_value": mean_val,
-                "pnl": pnl,
-                "total_return_pct": total_return_pct,
+        initial = result["initial_cash"]
+        mean_val = result["mean"]
+        pnl = mean_val - initial
+        total_return_pct = (pnl / initial * 100) if initial else 0
+        run_data = {
+            "strategy_id": req.strategy_id,
+            "strategy": strat["name"] + " (MC)",
+            "symbols": [symbol],
+            "start_date": "Monte Carlo",
+            "end_date": f"{horizon}d",
+            "results": [{"symbol": symbol, "start_value": initial, "end_value": mean_val, "pnl": pnl}],
+            "portfolio": {
+                "run_type": "montecarlo",
+                "initial_cash": initial,
+                "value": mean_val,
+                "fan_data": result.get("fan_data", []),
+                "percentiles": result.get("percentiles", {}),
+                "n_sims": result.get("n_success", 0),
+                "n_errors": result.get("n_errors", 0),
+                "horizon": horizon,
+                "prob_profit_pct": result.get("prob_profit_pct", 0),
             },
-            "trades": {"win_rate_pct": result.get("prob_profit_pct", 0), "trades": 0, "exits": 0},
-        },
-    }
-    run_id = db.save_run(user_id, run_data)
-    logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
+            "metrics": {
+                "equity": {"start_value": initial, "end_value": mean_val, "pnl": pnl, "total_return_pct": total_return_pct},
+                "trades": {"win_rate_pct": result.get("prob_profit_pct", 0), "trades": 0, "exits": 0},
+            },
+        }
+        run_id = db.save_run(user_id, run_data)
+        logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
+        _montecarlo_jobs[job_id] = {
+            "status": "done",
+            "result": {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result},
+        }
+    except Exception as e:
+        logger.exception("Monte Carlo job %s failed", job_id)
+        _montecarlo_jobs[job_id] = {"status": "error", "error": str(e)}
 
-    return {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result}
+
+@app.post("/api/v1/strategies/montecarlo")
+def montecarlo_endpoint(req: MonteCarloRequest, background_tasks: BackgroundTasks, user_id: str = Depends(verify_token)):
+    """Start Monte Carlo in background, return job_id immediately. Poll GET /montecarlo/{job_id} for result."""
+    _check_rate_limit(f"strategy:{user_id}", RATE_LIMIT_STRATEGY_WINDOW_SEC, RATE_LIMIT_STRATEGY_MAX)
+    strat = db.get_strategy(user_id, req.strategy_id)
+    if not strat:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    symbol = _validate_symbol(req.symbol)
+    stock = get_stock(symbol)
+    if stock.df.empty:
+        raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+    job_id = str(uuid.uuid4())
+    _montecarlo_jobs[job_id] = {"status": "pending", "user_id": user_id}
+    background_tasks.add_task(_run_montecarlo_background, job_id, user_id, req)
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/api/v1/strategies/montecarlo/{job_id}")
+def montecarlo_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
+    """Poll for Monte Carlo result. Returns status: pending | done | error."""
+    if job_id not in _montecarlo_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = _montecarlo_jobs[job_id]
+    if job.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if job["status"] == "done":
+        return job["result"]
+    if job["status"] == "error":
+        raise HTTPException(status_code=400, detail=job.get("error", "Monte Carlo failed"))
+    return {"status": "pending"}
 
 
 @app.get("/api/v1/runs")

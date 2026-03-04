@@ -41,7 +41,8 @@ All endpoints except `/health` require `Authorization: Bearer <Firebase ID token
 - `PUT /strategies/{id}` — Update. Body: `{ name?, code? }`
 - `DELETE /strategies/{id}` — Delete
 - `POST /strategies/run` — Run backtest. Body: `{ strategy_id, symbols[], start_date, end_date, train_pct? }`
-- `POST /strategies/montecarlo` — Monte Carlo simulation. Body: `{ strategy_id, symbol, n_sims?, horizon? }`. Samples from historical returns, runs strategy on synthetic paths. Returns percentiles, mean, prob. profitable.
+- `POST /strategies/montecarlo` — Start Monte Carlo (runs in background). Body: `{ strategy_id, symbol, n_sims?, horizon? }`. Returns `{ ok, job_id }`. Poll `GET /strategies/montecarlo/{job_id}` until done.
+- `GET /strategies/montecarlo/{job_id}` — Poll for Monte Carlo result. Returns `{ status: "pending" }` or full result when done.
 
 ## Runs
 

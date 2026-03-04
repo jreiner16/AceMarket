@@ -7,6 +7,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { ConfirmDialog } from './ConfirmDialog'
 import { FanChart } from './FanChart'
 import { apiGet, apiPost, apiPut, apiDelete } from './apiClient'
+import { setSuppress } from './coldStartStore'
 
 const DEFAULT_CODE = `# Example strategy: EMA/SMA Crossover Strategy (slippage/commission-aware sizing)
 class MyStrategy(Strategy):
@@ -59,7 +60,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
   const [runMode, setRunMode] = useState('backtest')  // 'backtest' | 'montecarlo'
   const [runSymbols, setRunSymbols] = useState([])
   const [runMonteCarloSymbol, setRunMonteCarloSymbol] = useState('')
-  const [runMonteCarloSims, setRunMonteCarloSims] = useState('100')
+  const [runMonteCarloSims, setRunMonteCarloSims] = useState('50')
   const [runMonteCarloHorizon, setRunMonteCarloHorizon] = useState('252')
   const [stocksDropdownOpen, setStocksDropdownOpen] = useState(false)
   const [runStart, setRunStart] = useState('2023-01-01')
@@ -68,6 +69,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
   const [runResults, setRunResults] = useState(null)
   const [monteCarloResults, setMonteCarloResults] = useState(null)
   const [running, setRunning] = useState(false)
+  const [runningMessage, setRunningMessage] = useState('')
   const [executingSymbols, setExecutingSymbols] = useState(new Set())
   const [filesWidth, setFilesWidth] = useState(120)
   const [apiKeyOpen, setApiKeyOpen] = useState(false)
@@ -186,24 +188,48 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
         return
       }
       setRunning(true)
+      setSuppress(true)
       setMonteCarloResults(null)
       setExecutingSymbols(new Set([sym]))
+      const messages = [
+        'Running Monte Carlo simulation…',
+        'Building synthetic price paths…',
+        'Running strategy on each path…',
+        'Computing percentiles…',
+        'Almost done…',
+      ]
+      const msgInterval = setInterval(() => {
+        setRunningMessage((prev) => {
+          const i = messages.indexOf(prev)
+          return messages[(i + 1) % messages.length]
+        })
+      }, 3000)
+      setRunningMessage(messages[0])
       try {
         const n = Math.max(10, Math.min(500, parseInt(runMonteCarloSims, 10) || 100))
         const h = Math.max(21, Math.min(504, parseInt(runMonteCarloHorizon, 10) || 252))
-        const data = await apiPost('/strategies/montecarlo', {
+        const { job_id } = await apiPost('/strategies/montecarlo', {
           strategy_id: selected,
           symbol: sym,
           n_sims: n,
           horizon: h,
         })
-        setMonteCarloResults(data)
-        onRefresh?.()
-        if (data?.run_id != null) onRunCompleted?.(data.run_id)
+        while (true) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const data = await apiGet(`/strategies/montecarlo/${job_id}`)
+          if (data.status === 'pending') continue
+          setMonteCarloResults(data)
+          onRefresh?.()
+          if (data?.run_id != null) onRunCompleted?.(data.run_id)
+          break
+        }
       } catch (e) {
         setMonteCarloResults({ error: e.detail || e.message })
       } finally {
+        clearInterval(msgInterval)
         setRunning(false)
+        setSuppress(false)
+        setRunningMessage('')
         setExecutingSymbols(new Set())
       }
       return
@@ -214,6 +240,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
       return
     }
     setRunning(true)
+    setSuppress(true)
     setRunResults(null)
     setExecutingSymbols(new Set(runSymbols))
     try {
@@ -235,6 +262,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
       setRunResults([{ error: e.detail || e.message }])
     } finally {
       setRunning(false)
+      setSuppress(false)
       setExecutingSymbols(new Set())
     }
   }
@@ -583,6 +611,17 @@ if index < len(atr_series) and atr_series[index]:
                 </>
               )}
 
+              {running && runMode === 'montecarlo' && (
+                <div className="strategy-run-results strategy-run-loading-box">
+                  <div className="strategy-run-result-row">
+                    <span className="strategy-run-loading-spinner" />
+                    <span className="strategy-run-loading">{runningMessage || 'Running Monte Carlo simulation…'}</span>
+                  </div>
+                  <div className="strategy-run-result-row strategy-run-loading-hint">
+                    This can take 1–2 minutes. You can keep using the app.
+                  </div>
+                </div>
+              )}
               {monteCarloResults && !monteCarloResults.error && (
                 <div className="strategy-run-results strategy-run-montecarlo-results">
                   {monteCarloResults.fan_data?.length > 1 && (
