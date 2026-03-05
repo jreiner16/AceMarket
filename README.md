@@ -16,7 +16,7 @@ cd backend && DISABLE_AUTH=1 uvicorn api:app --reload
 cd frontend && npm run dev
 ```
 
-Then open http://localhost:5173. **Make sure to set up a `.env.development`** so API calls go to localhost:8000 via the Vite proxy.
+Then open http://localhost:5173. Copy `frontend/.env.example` to `frontend/.env` and fill in your Firebase config; for local dev leave `VITE_API_BASE` unset or set to `http://localhost:8000/api/v1` if the frontend is not proxying.
 
 ## Tests
 
@@ -33,22 +33,18 @@ cd frontend && npm ci && npm run lint && npm run test:run && npm run build
 
 - [Strategy Rules](docs/STRATEGY_RULES.md)
 - [API Reference](docs/API.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Security](docs/SECURITY.md)
 
 ## Deployment
 
-Deploy frontend and backend separately. The frontend uses `VITE_API_BASE` at build time.
+Deploy frontend and backend separately. Copy `backend/.env.example` → `backend/.env` and `frontend/.env.example` → `frontend/.env` (or set env vars in your host); see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/SECURITY.md](docs/SECURITY.md).
 
-**Backend** — Deploy `backend/` (Docker or uvicorn). **Set `DATABASE_URL` to a PostgreSQL connection string** (e.g. Render Postgres) — without it, SQLite is used and **all data is lost on restart**. Set `CORS_ORIGINS`, `ENVIRONMENT=production`, Firebase credentials. See `backend/.env.example` and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+**Backend** — Set `DATABASE_URL` (PostgreSQL in production), `CORS_ORIGINS`, `ENVIRONMENT=production`, and Firebase Admin credentials. Run with uvicorn or Docker.
 
-**Frontend** — Build with `npm run build`. Set `VITE_API_BASE` and `VITE_FIREBASE_*`. See `frontend/.env.example`.
+**Frontend** — Set `VITE_API_BASE` and `VITE_FIREBASE_*` in `.env`, then `npm run build`. Deploy the `dist/` output (e.g. Firebase Hosting).
 
-**Firebase** — Create project, enable auth, add frontend URL to Authorized domains, configuring the Admin SDK on backend.
-
-**Render (API)** - Create project, connect to this project's GitHub repo, set up important key/value pairs like credentials, database URLs, etc. 
-
-**Render (Data persistence)** - Create PostGreS database and connect it to your API project. 
-
-When you commit and push any changes, make sure to wait for Render API to redeploy and (in ./frontend) npm run build to finish. Then run firebase deploy. 
+**Firebase** — Create a project, enable Auth, add your frontend URL to Authorized domains, and configure the Admin SDK on the backend. 
 
 ## Limitations
 
