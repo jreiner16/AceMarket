@@ -5,8 +5,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,24 @@ from auth import verify_token
 
 if DISABLE_AUTH:
     logger.warning("DISABLE_AUTH is set — authentication is bypassed (development only).")
+
+
+def _to_json_safe(obj: Any) -> Any:
+    """Convert numpy/pandas types to native Python for JSON serialization."""
+    if obj is None or isinstance(obj, (str, bool)):
+        return obj
+    if isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    if isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return [_to_json_safe(x) for x in obj.tolist()]
+    if isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(x) for x in obj]
+    return obj
+
 
 # Rate limiting: in-memory (use Redis for multi-worker)
 _rate_limit_store: dict[str, list[float]] = {}
@@ -892,7 +911,7 @@ def backtest_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
     if job.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if job["status"] == "done":
-        return job["result"]
+        return _to_json_safe(job["result"])
     if job["status"] == "error":
         raise HTTPException(status_code=400, detail=job.get("error", "Backtest failed"))
     return {"status": "pending"}
@@ -988,7 +1007,7 @@ def montecarlo_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
     if job.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if job["status"] == "done":
-        return job["result"]
+        return _to_json_safe(job["result"])
     if job["status"] == "error":
         raise HTTPException(status_code=400, detail=job.get("error", "Monte Carlo failed"))
     return {"status": "pending"}

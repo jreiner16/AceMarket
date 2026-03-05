@@ -321,7 +321,7 @@ def create_strategy(user_id: str, name: str, code: str) -> dict:
                 "INSERT INTO strategies (user_id, name, code) VALUES (%s, %s, %s) RETURNING id",
                 (user_id, name, code),
             )
-            sid = cur.fetchone()["id"]
+            sid = int(cur.fetchone()["id"])  # psycopg2 can return numpy.int64
         else:
             cur.execute(f"INSERT INTO strategies (user_id, name, code) VALUES ({p}, {p}, {p})", (user_id, name, code))
             sid = cur.lastrowid
@@ -379,7 +379,8 @@ def save_run(user_id: str, run_data: dict) -> int:
                    RETURNING id""",
                 params,
             )
-            return cur.fetchone()["id"]
+            row = cur.fetchone()
+            return int(row["id"])  # psycopg2 can return numpy.int64
         else:
             cur.execute(
                 f"""INSERT INTO runs (user_id, strategy_id, strategy_name, symbols_json, start_date, end_date,

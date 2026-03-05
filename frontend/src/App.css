@@ -941,36 +941,6 @@ textarea:focus {
   font-size: 11px;
 }
 
-.background-jobs-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.background-job-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-size: 11px;
-  color: var(--text);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-
-.background-job-spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--border);
-  border-top-color: var(--text);
-  border-radius: 50%;
-  animation: app-loading-spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-
 .logo {
   display: flex;
   align-items: center;
@@ -1808,11 +1778,26 @@ textarea:focus {
   border-color: #333;
 }
 
-/* ColdStartModal - corner loading indicator */
-.cold-start-indicator {
+/* CornerStatus - bottom-right: background tasks + API loading */
+.corner-status {
   position: fixed;
   bottom: 12px;
   right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  z-index: 400;
+}
+
+.corner-status-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.corner-status-task,
+.corner-status-loading {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1820,12 +1805,12 @@ textarea:focus {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   font-size: 12px;
-  z-index: 400;
+  color: var(--text);
 }
 
-.cold-start-indicator .cold-start-spinner {
-  width: 16px;
-  height: 16px;
+.corner-status-spinner {
+  width: 14px;
+  height: 14px;
   border: 2px solid var(--border);
   border-top-color: var(--text);
   border-radius: 50%;

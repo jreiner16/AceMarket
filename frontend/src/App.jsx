@@ -10,12 +10,11 @@ import { ReportPanel } from './ReportPanel'
 import { ConsolePanel } from './ConsolePanel'
 import { StrategyPanel } from './StrategyPanel'
 import { Watchlist } from './Watchlist'
-import { BackgroundJobsIndicator } from './BackgroundJobsIndicator'
 import { useBackgroundJobPoller } from './useBackgroundJobPoller'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog } from './ConfirmDialog'
-import { ColdStartModal } from './ColdStartModal'
+import { CornerStatus } from './CornerStatus'
 import './App.css'
 
 const MIN_LEFT = 180
@@ -127,7 +126,6 @@ function App() {
           <span>AceMarket</span>
         </div>
         <div className="header-actions">
-          <BackgroundJobsIndicator />
           <span className="header-account">Your account</span>
           <span className="header-user">{user.email}</span>
           <button type="button" className="header-settings-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
@@ -348,7 +346,7 @@ function App() {
         }}
         onCancel={() => setConfirmSignOut(false)}
       />
-      <ColdStartModal />
+      <CornerStatus />
     </div>
   )
 }
