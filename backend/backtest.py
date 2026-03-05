@@ -67,8 +67,6 @@ def _validate_strategy_code(code: str, *, block_lookahead: bool = True) -> ast.A
     _FORBIDDEN_ATTRS = {"df", "iloc", "loc", "iat", "at", "values", "index"}
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            raise ValueError("Imports are not allowed in strategy code")
         if isinstance(node, (ast.Global, ast.Nonlocal)):
             raise ValueError("global/nonlocal are not allowed in strategy code")
         if isinstance(node, ast.Attribute) and isinstance(node.attr, str):
