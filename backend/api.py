@@ -1,5 +1,4 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
-import json
 import logging
 import time
 import uuid
@@ -13,34 +12,26 @@ import pandas as pd
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 from pydantic import BaseModel
 
 from analytics import compute_report
 
 
-def _json_default(obj: Any) -> Any:
-    """Handle numpy/pandas types in json.dumps. Used app-wide."""
+def _to_native(obj: Any) -> Any:
+    """Recursively convert numpy/pandas types to native Python. Call at source before storing."""
+    if obj is None or isinstance(obj, (str, bool)):
+        return obj
+    if isinstance(obj, (int, float)) and not isinstance(obj, bool):
+        return obj
     if hasattr(obj, "item") and callable(getattr(obj, "item")):
         return obj.item()
     if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
-
-# Patch JSONResponse to handle numpy types app-wide (Postgres + pandas return int64/float64)
-_original_render = JSONResponse.render
-
-def _patched_render(self, content: Any) -> bytes:
-    return json.dumps(
-        content,
-        default=_json_default,
-        ensure_ascii=False,
-        allow_nan=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-JSONResponse.render = _patched_render
+        return [_to_native(x) for x in obj.tolist()]
+    if isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(x) for x in obj]
+    return obj
 from backtest import Backtest, create_strategy_from_code
 from portfolio import Portfolio
 from stock import Stock, make_minimal_stock
@@ -870,7 +861,7 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
                     equity_curve_enriched.append({"i": len(equity_curve_enriched), "v": sum(current), "time": t})
 
         metrics = compute_report(trade_log=combined_trade_log, equity_curve=equity_curve_enriched, initial_cash=initial)
-        run_data = {
+        run_data = _to_native({
             "strategy_id": req.strategy_id,
             "strategy": strat["name"],
             "symbols": symbols,
@@ -882,9 +873,10 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
             "results": results,
             "portfolio": {"initial_cash": initial, "value": port_value, "trade_log": combined_trade_log, "equity_curve": equity_curve_enriched},
             "metrics": metrics,
-        }
+        })
         run_id = db.save_run(user_id, run_data)
-        _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": {"ok": True, "results": results, "run_id": run_id}}
+        result = {"ok": True, "results": results, "run_id": int(run_id)}
+        _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result)}
     except Exception as e:
         logger.exception("Backtest job %s failed", job_id)
         _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
@@ -955,7 +947,7 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
         mean_val = result["mean"]
         pnl = mean_val - initial
         total_return_pct = (pnl / initial * 100) if initial else 0
-        run_data = {
+        run_data = _to_native({
             "strategy_id": req.strategy_id,
             "strategy": strat["name"] + " (MC)",
             "symbols": [symbol],
@@ -977,14 +969,11 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
                 "equity": {"start_value": initial, "end_value": mean_val, "pnl": pnl, "total_return_pct": total_return_pct},
                 "trades": {"win_rate_pct": result.get("prob_profit_pct", 0), "trades": 0, "exits": 0},
             },
-        }
+        })
         run_id = db.save_run(user_id, run_data)
         logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
-        _montecarlo_jobs[job_id] = {
-            "status": "done",
-            "user_id": user_id,
-            "result": {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result},
-        }
+        result_payload = {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": int(run_id), **result}
+        _montecarlo_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result_payload)}
     except Exception as e:
         logger.exception("Monte Carlo job %s failed", job_id)
         _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
