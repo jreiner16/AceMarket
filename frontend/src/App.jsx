@@ -15,6 +15,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CornerStatus } from './CornerStatus'
+import { ViewportGuard } from './ViewportGuard'
 import './App.css'
 
 const MIN_LEFT = 180
@@ -58,7 +59,7 @@ function App() {
   // Warm up backend as early as possible (Render cold start ~30–60s)
   useEffect(() => {
     const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/api\/v1\/?$/, '').replace(/\/$/, '') || window.location.origin
-    fetch(`${base}/health`).catch(() => {})
+    fetch(`${base}/health`).catch(() => { })
   }, [])
 
   const handleSelectStock = useCallback((symbol) => {
@@ -120,6 +121,7 @@ function App() {
 
   return (
     <div className="app">
+      <ViewportGuard />
       <header className="header">
         <div className="logo">
           <img className="logo-mark" src="/logo.svg" alt="AceMarket" />

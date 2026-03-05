@@ -89,12 +89,12 @@ def _validate_strategy_code(code: str, *, block_lookahead: bool = True) -> ast.A
 
 
 def _safe_builtins() -> dict:
+    """Restricted builtins for strategy sandbox; no print to avoid server log leakage."""
     return {
         "__build_class__": __build_class__,
         "Exception": Exception,
         "ValueError": ValueError,
         "TypeError": TypeError,
-        "print": print,
         "range": range,
         "len": len,
         "min": min,

@@ -103,6 +103,47 @@ textarea:focus {
   overflow: hidden;
 }
 
+/* ViewportGuard — full-screen overlay on mobile / bad aspect ratio */
+.viewport-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.viewport-guard-card {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  padding: 28px 32px;
+  max-width: 360px;
+  text-align: center;
+}
+
+.viewport-guard-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+}
+
+.viewport-guard-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--text);
+}
+
+.viewport-guard-text {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .app-body {
   display: flex;
   flex: 1;

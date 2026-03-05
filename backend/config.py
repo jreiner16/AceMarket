@@ -16,6 +16,7 @@ if os.path.isfile(_env_file):
                     os.environ[k] = v
 
 # CORS: restrict to frontend origin(s). Comma-separated for multiple.
+# In production, set CORS_ORIGINS to your frontend origin(s); no fallback to localhost.
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS if o.strip()]
 
@@ -23,7 +24,7 @@ CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS if o.strip()]
 STOCK_CACHE_MAX = 64
 STOCK_CACHE_TTL_SEC = 60 * 60
 
-# Rate limiting (in-memory; use Redis for multi-worker)
+# Rate limiting (in-memory per process; use Redis for multi-worker production)
 RATE_LIMIT_STRATEGY_WINDOW_SEC = 60
 RATE_LIMIT_STRATEGY_MAX = 5
 RATE_LIMIT_GENERAL_WINDOW_SEC = 60
@@ -32,6 +33,8 @@ RATE_LIMIT_GENERAL_MAX = 100
 # Environment: development, staging, production. Default development for easy local run.
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
+if IS_PRODUCTION and not CORS_ORIGINS:
+    logging.warning("CORS_ORIGINS is empty in production; set it to your frontend origin(s).")
 
 # Auth bypass: in development, bypass when Firebase creds missing or DISABLE_AUTH=1
 _creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON", "") or os.environ.get("FIREBASE_CREDENTIALS_BASE64", "")
@@ -58,6 +61,15 @@ _raw_db_url = os.environ.get("DATABASE_URL", "").strip()
 # Render uses postgres://; psycopg2 expects postgresql://
 DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1) if _raw_db_url.startswith("postgres://") else _raw_db_url
 DB_PATH = os.environ.get("ACEMARKET_DB", "acemarket.db")
+
+# Force auth on when production DB is used (prevent accidental bypass)
+if DATABASE_URL and DISABLE_AUTH:
+    logging.warning("DATABASE_URL is set; disabling auth bypass for safety.")
+    DISABLE_AUTH = False
+
+# Bounds for user inputs (prevent overflow/DoS)
+MAX_INITIAL_CASH = 1e12  # cap initial_cash to avoid float inf / JSON issues
+MAX_ORDER_QUANTITY = 10_000_000  # global cap on position size per order
 
 # Numeric tolerance for float comparisons
 FLOAT_TOLERANCE = 1e-9

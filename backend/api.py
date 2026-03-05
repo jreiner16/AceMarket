@@ -1,4 +1,5 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
+import hashlib
 import json
 import logging
 import time
@@ -41,6 +42,9 @@ logger = logging.getLogger(__name__)
 from config import (
     CORS_ORIGINS,
     DISABLE_AUTH,
+    IS_PRODUCTION,
+    MAX_INITIAL_CASH,
+    MAX_ORDER_QUANTITY,
     MAX_RUNS_PER_USER,
     RATE_LIMIT_GENERAL_MAX,
     RATE_LIMIT_GENERAL_WINDOW_SEC,
@@ -60,7 +64,7 @@ if DISABLE_AUTH:
     logger.warning("DISABLE_AUTH is set — authentication is bypassed (development only).")
 
 
-# Rate limiting: in-memory (use Redis for multi-worker)
+# Rate limiting: in-memory per process (use Redis for multi-worker production)
 _rate_limit_store: dict[str, list[float]] = {}
 
 # Monte Carlo background jobs: job_id -> { status, result?, error? }
@@ -94,8 +98,8 @@ app = FastAPI(
     title="AceMarket API",
     description="Paper trading platform with strategy backtesting",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
     lifespan=lifespan,
 )
 
@@ -120,7 +124,10 @@ async def rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
     auth = request.headers.get("Authorization") or ""
     ip = request.client.host if request.client else "unknown"
-    key = f"general:{auth[:32]}" if auth else f"general:ip:{ip}"
+    if auth:
+        key = f"general:{hashlib.sha256(auth.encode()).hexdigest()}"
+    else:
+        key = f"general:ip:{ip}"
     try:
         _check_rate_limit(key, RATE_LIMIT_GENERAL_WINDOW_SEC, RATE_LIMIT_GENERAL_MAX)
     except HTTPException:
@@ -521,12 +528,19 @@ def get_watchlist(user_id: str = Depends(verify_token)) -> dict:
 
 @app.put("/api/v1/watchlist")
 def update_watchlist(req: WatchlistUpdate, user_id: str = Depends(verify_token)) -> dict:
-    """Save user's watchlist."""
-    wl = [str(s).upper().strip() for s in (req.watchlist or []) if s][:30]
+    """Save user's watchlist. All symbols must be valid (alphanumeric, dot, hyphen; max 12 chars)."""
+    validated = []
+    for s in (req.watchlist or [])[:30]:
+        if not s:
+            continue
+        try:
+            validated.append(_validate_symbol(str(s).strip()))
+        except HTTPException:
+            raise
     settings = db.get_settings(user_id)
-    settings["watchlist"] = wl
+    settings["watchlist"] = validated
     db.save_settings(user_id, settings)
-    return {"watchlist": wl}
+    return {"watchlist": validated}
 
 
 def _get_quote_for_symbol(sym: str) -> dict:
@@ -637,6 +651,8 @@ def open_position(req: OpenPositionRequest, user_id: str = Depends(verify_token)
     """Open a long or short position."""
     if req.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
+    if req.quantity > MAX_ORDER_QUANTITY:
+        raise HTTPException(status_code=400, detail=f"Quantity exceeds maximum ({MAX_ORDER_QUANTITY:,})")
     if req.side not in ("long", "short"):
         raise HTTPException(status_code=400, detail="Side must be 'long' or 'short'")
     stock = get_stock(req.symbol)
@@ -669,6 +685,8 @@ def close_position(req: ClosePositionRequest, user_id: str = Depends(verify_toke
     """Close (part of) a position."""
     if req.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
+    if req.quantity > MAX_ORDER_QUANTITY:
+        raise HTTPException(status_code=400, detail=f"Quantity exceeds maximum ({MAX_ORDER_QUANTITY:,})")
     stock = get_stock(req.symbol)
     port = get_portfolio(user_id)
     settings = db.get_settings(user_id)
@@ -1086,6 +1104,8 @@ def update_settings_endpoint(upd: SettingsUpdate, user_id: str = Depends(verify_
     if upd.initial_cash is not None:
         if upd.initial_cash < 0:
             raise HTTPException(status_code=400, detail="initial_cash must be >= 0")
+        if upd.initial_cash > MAX_INITIAL_CASH:
+            raise HTTPException(status_code=400, detail=f"initial_cash must be <= {MAX_INITIAL_CASH:,.0f}")
         settings["initial_cash"] = float(upd.initial_cash)
         port = get_portfolio(user_id)
         cur = float(port.get_value())

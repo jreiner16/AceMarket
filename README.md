@@ -16,7 +16,7 @@ cd backend && DISABLE_AUTH=1 uvicorn api:app --reload
 cd frontend && npm run dev
 ```
 
-Then open http://localhost:5173. The frontend uses `.env.development` so API calls go to localhost:8000 via the Vite proxy.
+Then open http://localhost:5173. **Make sure to set up a `.env.development`** so API calls go to localhost:8000 via the Vite proxy.
 
 ## Tests
 
@@ -43,6 +43,12 @@ Deploy frontend and backend separately. The frontend uses `VITE_API_BASE` at bui
 **Frontend** — Build with `npm run build`. Set `VITE_API_BASE` and `VITE_FIREBASE_*`. See `frontend/.env.example`.
 
 **Firebase** — Create project, enable auth, add frontend URL to Authorized domains, configuring the Admin SDK on backend.
+
+**Render (API)** - Create project, connect to this project's GitHub repo, set up important key/value pairs like credentials, database URLs, etc. 
+
+**Render (Data persistence)** - Create PostGreS database and connect it to your API project. 
+
+When you commit and push any changes, make sure to wait for Render API to redeploy and (in ./frontend) npm run build to finish. Then run firebase deploy. 
 
 ## Limitations
 
