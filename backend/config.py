@@ -52,7 +52,11 @@ elif _explicit_disable or not _has_firebase_creds:
 else:
     DISABLE_AUTH = False
 
-# Database
+# Database: use PostgreSQL when DATABASE_URL is set (production, e.g. Render);
+# otherwise use SQLite (local dev). SQLite on Render is ephemeral — data is lost on restart.
+_raw_db_url = os.environ.get("DATABASE_URL", "").strip()
+# Render uses postgres://; psycopg2 expects postgresql://
+DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1) if _raw_db_url.startswith("postgres://") else _raw_db_url
 DB_PATH = os.environ.get("ACEMARKET_DB", "acemarket.db")
 
 # Numeric tolerance for float comparisons

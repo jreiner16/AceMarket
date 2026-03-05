@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { FanChart } from './FanChart'
 import { apiGet, apiPost, apiPut, apiDelete } from './apiClient'
 import { setSuppress } from './coldStartStore'
+import { addJob } from './backgroundJobsStore'
 
 const DEFAULT_CODE = `# Example strategy: EMA/SMA Crossover Strategy (slippage/commission-aware sizing)
 class MyStrategy(Strategy):
@@ -75,6 +76,13 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
   const [apiKeyOpen, setApiKeyOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const stocksDropdownRef = useRef(null)
+  const msgIntervalRef = useRef(null)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => { isMountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     if (!stocksDropdownOpen) return
@@ -198,7 +206,8 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
         'Computing percentiles…',
         'This may take 1–2 minutes…',
       ]
-      const msgInterval = setInterval(() => {
+      if (msgIntervalRef.current) clearInterval(msgIntervalRef.current)
+      msgIntervalRef.current = setInterval(() => {
         setRunningMessage((prev) => {
           const i = messages.indexOf(prev)
           return messages[(i + 1) % messages.length]
@@ -214,19 +223,32 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
           n_sims: n,
           horizon: h,
         })
-        while (true) {
-          await new Promise((r) => setTimeout(r, 1000))
-          const data = await apiGet(`/strategies/montecarlo/${job_id}`)
-          if (data.status === 'pending') continue
-          setMonteCarloResults(data)
-          await onRefresh?.()
-          if (data?.run_id != null) onRunCompleted?.(data.run_id)
-          break
-        }
+        addJob({
+          type: 'montecarlo',
+          job_id,
+          label: sym,
+          message: 'Running Monte Carlo…',
+          onComplete: (data) => {
+            if (msgIntervalRef.current) {
+              clearInterval(msgIntervalRef.current)
+              msgIntervalRef.current = null
+            }
+            if (isMountedRef.current) {
+              setMonteCarloResults(data?.error ? { error: data.error } : data)
+              setRunning(false)
+              setSuppress(false)
+              setRunningMessage('')
+              setExecutingSymbols(new Set())
+            } else {
+              setSuppress(false)
+            }
+            onRefresh?.()
+            if (data?.run_id != null) onRunCompleted?.(data.run_id)
+          },
+        })
       } catch (e) {
+        if (msgIntervalRef.current) clearInterval(msgIntervalRef.current)
         setMonteCarloResults({ error: e.detail || e.message })
-      } finally {
-        clearInterval(msgInterval)
         setRunning(false)
         setSuppress(false)
         setRunningMessage('')
@@ -255,18 +277,26 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
         body.train_pct = trainPct
       }
       const { job_id } = await apiPost('/strategies/run', body)
-      while (true) {
-        await new Promise((r) => setTimeout(r, 1000))
-        const data = await apiGet(`/strategies/run/${job_id}`)
-        if (data.status === 'pending') continue
-        setRunResults(data.results || [])
-        await onRefresh?.()
-        if (data?.run_id != null) onRunCompleted?.(data.run_id)
-        break
-      }
+      addJob({
+        type: 'backtest',
+        job_id,
+        label: runSymbols.length <= 3 ? runSymbols.join(', ') : `${runSymbols.length} symbols`,
+        message: 'Running backtest…',
+        onComplete: (data) => {
+          if (isMountedRef.current) {
+            setRunResults(data?.error ? [{ error: data.error }] : (data.results || []))
+            setRunning(false)
+            setSuppress(false)
+            setExecutingSymbols(new Set())
+          } else {
+            setSuppress(false)
+          }
+          onRefresh?.()
+          if (data?.run_id != null) onRunCompleted?.(data.run_id)
+        },
+      })
     } catch (e) {
       setRunResults([{ error: e.detail || e.message }])
-    } finally {
       setRunning(false)
       setSuppress(false)
       setExecutingSymbols(new Set())

@@ -10,6 +10,8 @@ import { ReportPanel } from './ReportPanel'
 import { ConsolePanel } from './ConsolePanel'
 import { StrategyPanel } from './StrategyPanel'
 import { Watchlist } from './Watchlist'
+import { BackgroundJobsIndicator } from './BackgroundJobsIndicator'
+import { useBackgroundJobPoller } from './useBackgroundJobPoller'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -45,6 +47,8 @@ function App() {
   const [chartShowEma, setChartShowEma] = useState(false)
   const [chartShowRsi, setChartShowRsi] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+
+  useBackgroundJobPoller()
 
   useEffect(() => {
     return subscribe((entries) => {
@@ -123,6 +127,7 @@ function App() {
           <span>AceMarket</span>
         </div>
         <div className="header-actions">
+          <BackgroundJobsIndicator />
           <span className="header-account">Your account</span>
           <span className="header-user">{user.email}</span>
           <button type="button" className="header-settings-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">

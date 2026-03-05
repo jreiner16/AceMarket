@@ -33,7 +33,7 @@ cd frontend && npm ci && npm run lint && npm run test:run && npm run build
 
 Deploy frontend and backend separately. The frontend uses `VITE_API_BASE` at build time.
 
-**Backend** — Deploy `backend/` (Docker or uvicorn). Set `CORS_ORIGINS`, `ENVIRONMENT=production`, `GOOGLE_APPLICATION_CREDENTIALS`, `ACEMARKET_DB`. See `backend/.env.example`.
+**Backend** — Deploy `backend/` (Docker or uvicorn). **Set `DATABASE_URL` to a PostgreSQL connection string** (e.g. Render Postgres) — without it, SQLite is used and **all data is lost on restart**. Set `CORS_ORIGINS`, `ENVIRONMENT=production`, Firebase credentials. See `backend/.env.example` and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 **Frontend** — Build with `npm run build`. Set `VITE_API_BASE` and `VITE_FIREBASE_*`. See `frontend/.env.example`.
 

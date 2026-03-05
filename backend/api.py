@@ -67,11 +67,7 @@ async def lifespan(app):
     db.init_db()
     logger.info("AceMarket API started. Auth: %s", "disabled" if DISABLE_AUTH else "enabled")
     yield
-    if hasattr(db, "_local") and hasattr(db._local, "conn") and db._local.conn is not None:
-        try:
-            db._local.conn.close()
-        except Exception as e:
-            logger.warning("Error closing DB connection on shutdown: %s", e)
+    db.close_conn()
     logger.info("AceMarket API shutdown complete")
 
 
