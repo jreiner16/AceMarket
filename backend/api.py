@@ -1,4 +1,5 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
+import json
 import logging
 import time
 import uuid
@@ -17,21 +18,20 @@ from pydantic import BaseModel
 from analytics import compute_report
 
 
+def _json_default(o: Any) -> Any:
+    """Handle numpy/pandas/datetime for json.dumps."""
+    if hasattr(o, "item") and callable(getattr(o, "item")):
+        return o.item()
+    if hasattr(o, "isoformat"):
+        return o.isoformat()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 def _to_native(obj: Any) -> Any:
-    """Recursively convert numpy/pandas types to native Python. Call at source before storing."""
-    if obj is None or isinstance(obj, (str, bool)):
-        return obj
-    if isinstance(obj, (int, float)) and not isinstance(obj, bool):
-        return obj
-    if hasattr(obj, "item") and callable(getattr(obj, "item")):
-        return obj.item()
-    if isinstance(obj, np.ndarray):
-        return [_to_native(x) for x in obj.tolist()]
-    if isinstance(obj, dict):
-        return {k: _to_native(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_to_native(x) for x in obj]
-    return obj
+    """Round-trip through JSON to guarantee native types only. Bulletproof."""
+    return json.loads(json.dumps(obj, default=_json_default))
 from backtest import Backtest, create_strategy_from_code
 from portfolio import Portfolio
 from stock import Stock, make_minimal_stock
@@ -876,7 +876,11 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
         })
         run_id = db.save_run(user_id, run_data)
         result = {"ok": True, "results": results, "run_id": int(run_id)}
-        _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result)}
+        try:
+            _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result)}
+        except Exception as serr:
+            logger.exception("Backtest result serialization failed: %s", serr)
+            _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": f"Result serialization failed: {serr}"}
     except Exception as e:
         logger.exception("Backtest job %s failed", job_id)
         _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
@@ -973,7 +977,11 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
         run_id = db.save_run(user_id, run_data)
         logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
         result_payload = {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": int(run_id), **result}
-        _montecarlo_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result_payload)}
+        try:
+            _montecarlo_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result_payload)}
+        except Exception as serr:
+            logger.exception("Monte Carlo result serialization failed: %s", serr)
+            _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": f"Result serialization failed: {serr}"}
     except Exception as e:
         logger.exception("Monte Carlo job %s failed", job_id)
         _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}

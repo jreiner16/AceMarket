@@ -6,12 +6,17 @@ A full-stack paper trading platform with a Python strategy IDE, backtester, and 
 
 ## Getting Started
 
+**Local dev** (frontend proxies `/api` to backend):
+
 ```bash
-cd backend && uvicorn api:app
+# Terminal 1 — backend (DISABLE_AUTH=1 for local without Firebase)
+cd backend && DISABLE_AUTH=1 uvicorn api:app --reload
+
+# Terminal 2 — frontend
 cd frontend && npm run dev
 ```
 
-Run backend and frontend in separate terminals.
+Then open http://localhost:5173. The frontend uses `.env.development` so API calls go to localhost:8000 via the Vite proxy.
 
 ## Tests
 
