@@ -1,4 +1,5 @@
 """AceMarket API — built with FastAPI server, has auth, persistence, and rate limiting"""
+import json
 import logging
 import time
 import uuid
@@ -12,9 +13,34 @@ import pandas as pd
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from pydantic import BaseModel
 
 from analytics import compute_report
+
+
+def _json_default(obj: Any) -> Any:
+    """Handle numpy/pandas types in json.dumps. Used app-wide."""
+    if hasattr(obj, "item") and callable(getattr(obj, "item")):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+# Patch JSONResponse to handle numpy types app-wide (Postgres + pandas return int64/float64)
+_original_render = JSONResponse.render
+
+def _patched_render(self, content: Any) -> bytes:
+    return json.dumps(
+        content,
+        default=_json_default,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+JSONResponse.render = _patched_render
 from backtest import Backtest, create_strategy_from_code
 from portfolio import Portfolio
 from stock import Stock, make_minimal_stock
@@ -41,23 +67,6 @@ from auth import verify_token
 
 if DISABLE_AUTH:
     logger.warning("DISABLE_AUTH is set — authentication is bypassed (development only).")
-
-
-def _to_json_safe(obj: Any) -> Any:
-    """Convert numpy/pandas types to native Python for JSON serialization."""
-    if obj is None or isinstance(obj, (str, bool)):
-        return obj
-    if isinstance(obj, (np.integer, np.int64, np.int32)):
-        return int(obj)
-    if isinstance(obj, (np.floating, np.float64, np.float32)):
-        return float(obj)
-    if isinstance(obj, np.ndarray):
-        return [_to_json_safe(x) for x in obj.tolist()]
-    if isinstance(obj, dict):
-        return {k: _to_json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_to_json_safe(x) for x in obj]
-    return obj
 
 
 # Rate limiting: in-memory (use Redis for multi-worker)
@@ -911,7 +920,7 @@ def backtest_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
     if job.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if job["status"] == "done":
-        return _to_json_safe(job["result"])
+        return job["result"]
     if job["status"] == "error":
         raise HTTPException(status_code=400, detail=job.get("error", "Backtest failed"))
     return {"status": "pending"}
@@ -1007,7 +1016,7 @@ def montecarlo_poll_endpoint(job_id: str, user_id: str = Depends(verify_token)):
     if job.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     if job["status"] == "done":
-        return _to_json_safe(job["result"])
+        return job["result"]
     if job["status"] == "error":
         raise HTTPException(status_code=400, detail=job.get("error", "Monte Carlo failed"))
     return {"status": "pending"}
