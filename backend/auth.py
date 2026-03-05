@@ -13,7 +13,6 @@ from config import DISABLE_AUTH
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 _firebase_app = None
-_firebase_project_id: Optional[str] = None  # for token audience verification
 
 
 def _load_credentials_json():
@@ -39,7 +38,7 @@ def _load_credentials_json():
 
 
 def _get_firebase_app():
-    global _firebase_app, _firebase_project_id
+    global _firebase_app
     if _firebase_app is None:
         try:
             import firebase_admin
@@ -48,16 +47,12 @@ def _get_firebase_app():
                 cred = None
                 data = _load_credentials_json()
                 if data:
-                    _firebase_project_id = data.get("project_id")
                     cred = credentials.Certificate(data)
-                    logger.info("Firebase initialized from env credentials (project: %s)", _firebase_project_id or "?")
+                    logger.info("Firebase initialized from env credentials (project: %s)", data.get("project_id", "?"))
                 else:
                     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
                     if cred_path and os.path.exists(cred_path):
-                        with open(cred_path) as f:
-                            file_data = json.load(f)
-                        _firebase_project_id = file_data.get("project_id")
-                        cred = credentials.Certificate(file_data)
+                        cred = credentials.Certificate(cred_path)
                         logger.info("Firebase initialized from file: %s", cred_path)
                     else:
                         cred = None
@@ -97,10 +92,9 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
                 detail="Firebase Admin SDK not installed. Run: pip install firebase-admin",
             ) from None
         _get_firebase_app()
-        opts = {}
-        if _firebase_project_id:
-            opts["audience"] = _firebase_project_id
-        decoded = auth.verify_id_token(token, **opts)
+        # Do not pass audience: Firebase ID tokens can have aud = project_id or OAuth client ID.
+        # Requiring audience=project_id breaks valid tokens (e.g. from Google Sign-In).
+        decoded = auth.verify_id_token(token)
         uid = decoded.get("uid")
         if not uid:
             raise HTTPException(status_code=401, detail="Invalid token payload")
