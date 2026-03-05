@@ -41,18 +41,23 @@ logger = logging.getLogger(__name__)
 
 from config import (
     CORS_ORIGINS,
+    DATE_STR_MAX_LEN,
     DISABLE_AUTH,
     IS_PRODUCTION,
+    MAX_BACKTEST_SYMBOLS,
     MAX_INITIAL_CASH,
     MAX_ORDER_QUANTITY,
     MAX_RUNS_PER_USER,
+    MAX_WATCHLIST_QUOTES_SYMBOLS,
     RATE_LIMIT_GENERAL_MAX,
     RATE_LIMIT_GENERAL_WINDOW_SEC,
     RATE_LIMIT_STRATEGY_MAX,
     RATE_LIMIT_STRATEGY_WINDOW_SEC,
+    SEARCH_QUERY_MAX_LEN,
     STOCK_CACHE_MAX,
     STOCK_CACHE_TTL_SEC,
     STRATEGY_CODE_MAX_LEN,
+    STRATEGY_NAME_MAX_LEN,
     SYMBOL_ALLOWED_CHARS,
     SYMBOL_MAX_LEN,
 )
@@ -103,10 +108,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: never allow * with credentials. Require explicit origins in production.
+# CORS: never allow * with credentials. In production, no fallback (empty = no origins).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if CORS_ORIGINS else ["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=(
+        CORS_ORIGINS
+        if CORS_ORIGINS
+        else ([] if IS_PRODUCTION else ["http://localhost:5173", "http://127.0.0.1:5173"])
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,16 +127,19 @@ _RATE_LIMIT_SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """General rate limit for API routes (by auth token or IP)."""
+    """General rate limit for API routes (by auth token or IP). When auth is disabled, use IP only to prevent bypass."""
     path = request.url.path.rstrip("/")
     if path in _RATE_LIMIT_SKIP_PATHS or not path.startswith("/api"):
         return await call_next(request)
-    auth = request.headers.get("Authorization") or ""
     ip = request.client.host if request.client else "unknown"
-    if auth:
-        key = f"general:{hashlib.sha256(auth.encode()).hexdigest()}"
-    else:
+    if DISABLE_AUTH:
         key = f"general:ip:{ip}"
+    else:
+        auth = request.headers.get("Authorization") or ""
+        if auth:
+            key = f"general:{hashlib.sha256(auth.encode()).hexdigest()}"
+        else:
+            key = f"general:ip:{ip}"
     try:
         _check_rate_limit(key, RATE_LIMIT_GENERAL_WINDOW_SEC, RATE_LIMIT_GENERAL_MAX)
     except HTTPException:
@@ -143,6 +155,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     return response
 
 
@@ -167,6 +180,33 @@ def _validate_symbol(symbol: str) -> str:
     if not all(c in SYMBOL_ALLOWED_CHARS for c in s):
         raise HTTPException(status_code=400, detail="Symbol contains invalid characters")
     return s
+
+
+def _validate_date_str(value: Optional[str]) -> Optional[str]:
+    """Validate date string (YYYY-MM-DD), max length. Returns normalized string or None. Raises HTTPException if invalid."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    s = (value or "").strip()
+    if len(s) > DATE_STR_MAX_LEN:
+        raise HTTPException(status_code=400, detail=f"Date string too long (max {DATE_STR_MAX_LEN} chars)")
+    if len(s) != 10 or s[4] != "-" or s[7] != "-":
+        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+    try:
+        int(s[:4])
+        int(s[5:7])
+        int(s[8:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+    return s
+
+
+def _safe_error_message(e: Exception) -> str:
+    """Return user-safe error message; log full detail in production."""
+    msg = str(e)
+    if IS_PRODUCTION:
+        logger.warning("Sanitized error response: %s", msg)
+        return "Operation failed. Please try again or contact support."
+    return msg
 
 
 def get_stock(symbol: str) -> Stock:
@@ -338,7 +378,7 @@ def _run_backtest_single_symbol(
         raise
     except Exception as e:
         logger.warning("Strategy run failed for %s: %s", symbol, e)
-        return {"ok": False, "symbol": symbol, "error": str(e)}
+        return {"ok": False, "symbol": symbol, "error": _safe_error_message(e)}
 
 
 def save_portfolio(user_id: str, port: Portfolio, settings: dict):
@@ -449,6 +489,9 @@ def health():
 @app.get("/api/v1/search")
 def search_stocks(q: str, user_id: str = Depends(verify_token)):
     """Search for stocks via Yahoo Finance."""
+    q = (q or "").strip()
+    if q and len(q) > SEARCH_QUERY_MAX_LEN:
+        raise HTTPException(status_code=400, detail=f"Search query too long (max {SEARCH_QUERY_MAX_LEN} characters)")
     from data_provider import search_tickers
     results = search_tickers(q, limit=10)
     return [SearchResult(symbol=r["symbol"], name=r["name"], type=r.get("type", "EQUITY")) for r in results]
@@ -464,6 +507,8 @@ def get_stock_data(
 ) -> dict:
     """Get OHLC data for charting. Cached 5 min to avoid repeated Yahoo fetches."""
     symbol = _validate_symbol(symbol)
+    start_date = _validate_date_str(start_date) if start_date else None
+    end_date = _validate_date_str(end_date) if end_date else None
     cache_key = f"{symbol}|{start_date or ''}|{end_date or ''}|{limit}"
     now = time.time()
     with _chart_cache_lock:
@@ -562,7 +607,7 @@ def _get_quote_for_symbol(sym: str) -> dict:
 @app.get("/api/v1/watchlist/quotes")
 def get_watchlist_quotes(symbols: str, user_id: str = Depends(verify_token)) -> list[dict]:
     """Get price and change from previous close for each symbol. Fetches in parallel."""
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:MAX_WATCHLIST_QUOTES_SYMBOLS]
     if not syms:
         return []
     result = [None] * len(syms)
@@ -664,7 +709,7 @@ def open_position(req: OpenPositionRequest, user_id: str = Depends(verify_token)
         else:
             port.enter_position_short(stock, req.quantity)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=_safe_error_message(e))
     save_portfolio(user_id, port, settings)
     return {"ok": True, "message": f"Opened {req.side} {req.quantity} {req.symbol}"}
 
@@ -693,7 +738,7 @@ def close_position(req: ClosePositionRequest, user_id: str = Depends(verify_toke
     try:
         port.exit_position(stock, req.quantity)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=_safe_error_message(e))
     save_portfolio(user_id, port, settings)
     return {"ok": True, "message": f"Closed {req.quantity} {req.symbol}"}
 
@@ -712,6 +757,8 @@ def get_strategies_endpoint(user_id: str = Depends(verify_token)):
 def create_strategy_endpoint(req: StrategyCreate, user_id: str = Depends(verify_token)):
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="Strategy name cannot be empty")
+    if len((req.name or "").strip()) > STRATEGY_NAME_MAX_LEN:
+        raise HTTPException(status_code=400, detail=f"Strategy name too long (max {STRATEGY_NAME_MAX_LEN} characters)")
     if not req.code or not req.code.strip():
         raise HTTPException(status_code=400, detail="Strategy code cannot be empty")
     if len(req.code) > STRATEGY_CODE_MAX_LEN:
@@ -728,7 +775,7 @@ def create_strategy_endpoint(req: StrategyCreate, user_id: str = Depends(verify_
         port.add_cash(1000)
         create_strategy_from_code(stock, port, req.code, block_lookahead=block_lookahead)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=_safe_error_message(e))
     strat = db.create_strategy(user_id, name, req.code)
     return {"ok": True, "strategy": strat}
 
@@ -742,6 +789,8 @@ def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str
         n = upd.name.strip()
         if not n:
             raise HTTPException(status_code=400, detail="Strategy name cannot be empty")
+        if len(n) > STRATEGY_NAME_MAX_LEN:
+            raise HTTPException(status_code=400, detail=f"Strategy name too long (max {STRATEGY_NAME_MAX_LEN} characters)")
         other = next((s for s in db.get_strategies(user_id) if s["id"] != strategy_id and s["name"].lower() == n.lower()), None)
         if other:
             raise HTTPException(status_code=400, detail=f"Strategy '{n}' already exists")
@@ -757,7 +806,7 @@ def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str
         port.add_cash(1000)
         create_strategy_from_code(stock, port, upd.code if upd.code is not None else strat["code"], block_lookahead=block_lookahead)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=_safe_error_message(e))
     updated = db.update_strategy(user_id, strategy_id, upd.name, upd.code)
     return {"ok": True, "strategy": updated}
 
@@ -776,7 +825,7 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
         if not strat:
             _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": "Strategy not found"}
             return
-        symbols = [s.strip().upper() for s in req.symbols if s and s.strip()]
+        symbols = [s.strip().upper() for s in req.symbols if s and s.strip()][:MAX_BACKTEST_SYMBOLS]
         if not symbols:
             _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": "Select at least one stock"}
             return
@@ -814,7 +863,7 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
                     raise
                 except Exception as e:
                     logger.warning("Strategy run failed for %s: %s", symbol, e)
-                    symbol_to_result[symbol] = {"ok": False, "symbol": symbol, "error": str(e)}
+                    symbol_to_result[symbol] = {"ok": False, "symbol": symbol, "error": _safe_error_message(e)}
         results = []
         combined_trade_log = []
         portfolio_equity_curves = []
@@ -898,10 +947,10 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
             _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result)}
         except Exception as serr:
             logger.exception("Backtest result serialization failed: %s", serr)
-            _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": f"Result serialization failed: {serr}"}
+            _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": _safe_error_message(serr)}
     except Exception as e:
         logger.exception("Backtest job %s failed", job_id)
-        _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
+        _backtest_jobs[job_id] = {"status": "error", "user_id": user_id, "error": _safe_error_message(e)}
 
 
 @app.post("/api/v1/strategies/run")
@@ -913,9 +962,17 @@ def run_strategy_endpoint(req: RunStrategyRequest, background_tasks: BackgroundT
         raise HTTPException(status_code=404, detail="Strategy not found")
     if not req.symbols:
         raise HTTPException(status_code=400, detail="Select at least one stock")
-    symbols = [s.strip().upper() for s in req.symbols if s and s.strip()]
+    symbols = [s.strip().upper() for s in req.symbols if s and s.strip()][:MAX_BACKTEST_SYMBOLS]
     if not symbols:
         raise HTTPException(status_code=400, detail="Select at least one stock")
+    if len([s for s in (req.symbols or []) if s and s.strip()]) > MAX_BACKTEST_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"Too many symbols (max {MAX_BACKTEST_SYMBOLS})")
+    if not (req.start_date or "").strip():
+        raise HTTPException(status_code=400, detail="start_date is required (YYYY-MM-DD)")
+    if not (req.end_date or "").strip():
+        raise HTTPException(status_code=400, detail="end_date is required (YYYY-MM-DD)")
+    _validate_date_str(req.start_date)
+    _validate_date_str(req.end_date)
     train_pct = req.train_pct
     if train_pct is not None and (train_pct <= 0 or train_pct >= 1):
         raise HTTPException(status_code=400, detail="train_pct must be between 0 and 1 (exclusive)")
@@ -999,10 +1056,10 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
             _montecarlo_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result_payload)}
         except Exception as serr:
             logger.exception("Monte Carlo result serialization failed: %s", serr)
-            _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": f"Result serialization failed: {serr}"}
+            _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": _safe_error_message(serr)}
     except Exception as e:
         logger.exception("Monte Carlo job %s failed", job_id)
-        _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": str(e)}
+        _montecarlo_jobs[job_id] = {"status": "error", "user_id": user_id, "error": _safe_error_message(e)}
 
 
 @app.post("/api/v1/strategies/montecarlo")

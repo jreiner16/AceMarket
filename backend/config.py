@@ -16,9 +16,12 @@ if os.path.isfile(_env_file):
                     os.environ[k] = v
 
 # CORS: restrict to frontend origin(s). Comma-separated for multiple.
-# In production, set CORS_ORIGINS to your frontend origin(s); no fallback to localhost.
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS if o.strip()]
+# In production, no fallback — empty CORS_ORIGINS means no origins allowed (fail-safe).
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+if not _cors_raw:
+    CORS_ORIGINS = []  # set after IS_PRODUCTION below
+else:
+    CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 
 # Stock cache
 STOCK_CACHE_MAX = 64
@@ -33,6 +36,10 @@ RATE_LIMIT_GENERAL_MAX = 100
 # Environment: development, staging, production. Default development for easy local run.
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
+
+# CORS: in production require explicit origins; in dev allow localhost when unset
+if not _cors_raw:
+    CORS_ORIGINS = [] if IS_PRODUCTION else ["http://localhost:5173", "http://127.0.0.1:5173"]
 if IS_PRODUCTION and not CORS_ORIGINS:
     logging.warning("CORS_ORIGINS is empty in production; set it to your frontend origin(s).")
 
@@ -67,6 +74,12 @@ if DATABASE_URL and DISABLE_AUTH:
     logging.warning("DATABASE_URL is set; disabling auth bypass for safety.")
     DISABLE_AUTH = False
 
+# P0: Refuse to run in production with DISABLE_AUTH explicitly set
+if IS_PRODUCTION and _explicit_disable:
+    import sys
+    logging.critical("DISABLE_AUTH must not be set when ENVIRONMENT=production.")
+    sys.exit(1)
+
 # Bounds for user inputs (prevent overflow/DoS)
 MAX_INITIAL_CASH = 1e12  # cap initial_cash to avoid float inf / JSON issues
 MAX_ORDER_QUANTITY = 10_000_000  # global cap on position size per order
@@ -84,6 +97,13 @@ MAX_RUNS_PER_USER = 25
 
 # Strategy code limits
 STRATEGY_CODE_MAX_LEN = 50_000
+STRATEGY_NAME_MAX_LEN = 200
+
+# Input caps (DoS prevention)
+SEARCH_QUERY_MAX_LEN = 200
+MAX_WATCHLIST_QUOTES_SYMBOLS = 50
+MAX_BACKTEST_SYMBOLS = 30
+DATE_STR_MAX_LEN = 16  # YYYY-MM-DD or similar
 
 # Logging
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
