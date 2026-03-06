@@ -15,6 +15,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CornerStatus } from './CornerStatus'
+import { WakeUpModal } from './WakeUpModal'
 import { ViewportGuard } from './ViewportGuard'
 import './App.css'
 
@@ -348,6 +349,7 @@ function App() {
         }}
         onCancel={() => setConfirmSignOut(false)}
       />
+      <WakeUpModal />
       <CornerStatus />
     </div>
   )

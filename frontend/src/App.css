@@ -1819,6 +1819,56 @@ textarea:focus {
   border-color: #333;
 }
 
+/* WakeUpModal - fullscreen when server is waking from cold start */
+.wake-up-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wake-up-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 32px 48px;
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.wake-up-modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wake-up-modal-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: app-loading-spin 0.8s linear infinite;
+}
+
+.wake-up-modal-quote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
 /* CornerStatus - bottom-right: background tasks + API loading */
 .corner-status {
   position: fixed;
