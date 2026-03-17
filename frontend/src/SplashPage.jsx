@@ -111,16 +111,26 @@ export function SplashPage() {
         <div className="splash-hero">
           <img src="/logo.svg" alt="" className="splash-hero-logo" />
           <h1>AceMarket</h1>
-          <p className="splash-hero-tagline">Paper trading and strategy backtesting</p>
+          <p className="splash-hero-tagline">Paper trade, test ideas, and stress‑test strategies before you risk a dollar.</p>
         </div>
 
         <div className="splash-features">
           <div className="splash-features-title">What you can do</div>
           <ul className="splash-feature-list">
-            <li>View real-time charts and candlesticks</li>
-            <li>Paper trade with configurable slippage and commission</li>
-            <li>Write and run Python strategy backtests</li>
-            <li>Track portfolio performance export data</li>
+            <li>Stream real‑time charts and candlesticks for U.S. stocks</li>
+            <li>Paper trade with configurable slippage, commission, and position sizing</li>
+            <li>Write Python strategies and run historical backtests in the browser IDE</li>
+            <li>Generate Monte Carlo scenarios to see best, typical, and worst‑case equity curves</li>
+            <li>Track portfolio P&amp;L and export results for further analysis</li>
+          </ul>
+        </div>
+
+        <div className="splash-features">
+          <div className="splash-features-title">Under the hood</div>
+          <ul className="splash-feature-list">
+            <li>Built with Python/FastAPI, React + Vite</li>
+            <li>PostgreSQL on Render for persistent strategies, runs, and positions</li>
+            <li>Firebase Auth and Firebase Hosting for secure, simple sign‑in</li>
           </ul>
         </div>
 
