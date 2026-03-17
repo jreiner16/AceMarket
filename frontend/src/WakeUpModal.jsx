@@ -10,7 +10,6 @@ const WAKE_UP_QUOTES = [
   'Price is what you pay. Value is what you get',
   'Be fearful when others are greedy, and greedy when others are fearful',
   'It is not whether you are right or wrong that matters, but how much money you make when right and how much you lose when wrong',
-  'The goal is not to make money. The goal is not to lose money',
   'In the short run, the market is a voting machine. In the long run, it is a weighing machine',
   'Never test the depth of the river with both feet',
   'When life gives you lemons, backtest them on different symbols and see if you can make lemonade',
