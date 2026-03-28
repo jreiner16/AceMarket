@@ -36,6 +36,8 @@ All endpoints except `/health` require `Authorization: Bearer <Firebase ID token
 
 ## Strategies
 
+Strategy `code` is executed in a restricted sandbox: see [STRATEGY_RULES.md](STRATEGY_RULES.md). **Imports** are allowed only from a fixed whitelist of stdlib modules (e.g. `math`, `statistics`, `random`); relative imports and modules such as `os` / `sys` are rejected.
+
 - `GET /strategies` — List user strategies
 - `POST /strategies` — Create. Body: `{ name, code }`
 - `PUT /strategies/{id}` — Update. Body: `{ name?, code? }`

@@ -1,10 +1,38 @@
 """Execute user backtest strategy code"""
 import ast
+import builtins
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from strategy import Strategy
 
 from config import STRATEGY_CODE_MAX_LEN
+
+# Stdlib only; no I/O, subprocess, dynamic loading, or introspection-heavy modules.
+STRATEGY_ALLOWED_IMPORT_ROOTS = frozenset(
+    {
+        "abc",
+        "array",
+        "bisect",
+        "collections",
+        "contextlib",
+        "copy",
+        "decimal",
+        "enum",
+        "fractions",
+        "functools",
+        "heapq",
+        "itertools",
+        "math",
+        "numbers",
+        "operator",
+        "random",
+        "statistics",
+        "string",
+        "typing",
+    }
+)
+
+_REAL_IMPORT = builtins.__import__
 
 _FORBIDDEN_NAMES = {
     "__builtins__",
@@ -56,6 +84,45 @@ _ALLOWED_DUNDER_ATTRS = {
 }
 
 
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    """Whitelist-only __import__ for strategy sandbox (absolute imports only)."""
+    if level != 0:
+        raise ImportError("Relative imports are not allowed in strategy code")
+    if not name or not isinstance(name, str):
+        raise ImportError("Invalid import name")
+    root = name.split(".", 1)[0]
+    if root not in STRATEGY_ALLOWED_IMPORT_ROOTS:
+        allowed = ", ".join(sorted(STRATEGY_ALLOWED_IMPORT_ROOTS))
+        raise ImportError(
+            f"Import of '{name}' is not allowed. Allowed top-level modules: {allowed}"
+        )
+    return _REAL_IMPORT(name, globals, locals, fromlist, level)
+
+
+def _validate_strategy_imports(tree: ast.AST) -> None:
+    """Reject imports not on the whitelist (and relative imports) before execution."""
+    allowed_msg = ", ".join(sorted(STRATEGY_ALLOWED_IMPORT_ROOTS))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mod_name = alias.name
+                root = mod_name.split(".", 1)[0]
+                if root not in STRATEGY_ALLOWED_IMPORT_ROOTS:
+                    raise ValueError(
+                        f"Import '{mod_name}' is not allowed. Allowed top-level modules: {allowed_msg}"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            if node.level != 0:
+                raise ValueError("Relative imports are not allowed in strategy code")
+            if node.module is None:
+                raise ValueError("Relative imports are not allowed in strategy code")
+            root = node.module.split(".", 1)[0]
+            if root not in STRATEGY_ALLOWED_IMPORT_ROOTS:
+                raise ValueError(
+                    f"Import from '{node.module}' is not allowed. Allowed top-level modules: {allowed_msg}"
+                )
+
+
 def _validate_strategy_code(code: str, *, block_lookahead: bool = True) -> ast.AST:
     try:
         tree = ast.parse(code, mode="exec")
@@ -82,6 +149,7 @@ def _validate_strategy_code(code: str, *, block_lookahead: bool = True) -> ast.A
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_NAMES:
             raise ValueError(f"Calls to '{node.func.id}' are not allowed in strategy code")
 
+    _validate_strategy_imports(tree)
     return tree
 
 
@@ -89,6 +157,7 @@ def _safe_builtins() -> dict:
     """Restricted builtins for strategy sandbox; no print to avoid server log leakage."""
     return {
         "__build_class__": __build_class__,
+        "__import__": _safe_import,
         "Exception": Exception,
         "ValueError": ValueError,
         "TypeError": TypeError,

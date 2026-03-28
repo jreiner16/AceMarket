@@ -437,6 +437,14 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
                       </ul>
                     </div>
                     <div className="strategy-api-section">
+                      <strong>Imports</strong> (whitelist only)
+                      <ul>
+                        <li>Absolute <code>import</code> / <code>from … import</code> only — no relative imports (<code>from . …</code>)</li>
+                        <li>Allowed top-level stdlib modules: <code>abc</code>, <code>array</code>, <code>bisect</code>, <code>collections</code>, <code>contextlib</code>, <code>copy</code>, <code>decimal</code>, <code>enum</code>, <code>fractions</code>, <code>functools</code>, <code>heapq</code>, <code>itertools</code>, <code>math</code>, <code>numbers</code>, <code>operator</code>, <code>random</code>, <code>statistics</code>, <code>string</code>, <code>typing</code> (submodules like <code>collections.abc</code> are OK)</li>
+                        <li>Not allowed: <code>os</code>, <code>sys</code>, <code>numpy</code>, <code>importlib</code>, etc.</li>
+                      </ul>
+                    </div>
+                    <div className="strategy-api-section">
                       <strong>Forbidden</strong> (lookahead blocked)
                       <ul>
                         <li>No <code>stock.df</code>, <code>stock.df.iloc</code>, <code>.loc</code>, <code>.iat</code>, <code>.at</code>, <code>.values</code>, <code>.index</code></li>
@@ -453,7 +461,7 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
                     <div className="strategy-api-section">
                       <strong>Allowed builtins</strong>
                       <ul>
-                        <li><code>range</code>, <code>len</code>, <code>min</code>, <code>max</code>, <code>sum</code>, <code>abs</code>, <code>round</code>, <code>int</code>, <code>float</code>, <code>str</code>, <code>bool</code>, <code>list</code>, <code>dict</code>, <code>set</code>, <code>tuple</code>, <code>enumerate</code>, <code>zip</code>, <code>next</code>, <code>any</code>, <code>all</code>, <code>sorted</code>, <code>super</code>, <code>Exception</code>, <code>ValueError</code>, <code>TypeError</code>, <code>print</code></li>
+                        <li><code>range</code>, <code>len</code>, <code>min</code>, <code>max</code>, <code>sum</code>, <code>abs</code>, <code>round</code>, <code>int</code>, <code>float</code>, <code>str</code>, <code>bool</code>, <code>list</code>, <code>dict</code>, <code>set</code>, <code>tuple</code>, <code>enumerate</code>, <code>zip</code>, <code>next</code>, <code>any</code>, <code>all</code>, <code>sorted</code>, <code>super</code>, <code>Exception</code>, <code>ValueError</code>, <code>TypeError</code> (no <code>print</code> — keeps logs clean)</li>
                       </ul>
                     </div>
                     <div className="strategy-api-section">
