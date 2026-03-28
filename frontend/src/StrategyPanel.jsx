@@ -10,7 +10,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from './apiClient'
 import { setSuppress } from './coldStartStore'
 import { addJob } from './backgroundJobsStore'
 
-const DEFAULT_CODE = `# Example strategy: EMA/SMA Crossover Strategy (slippage/commission-aware sizing)
+const DEFAULT_CODE = `# Example strategy: SMA Strategy
 class MyStrategy(Strategy):
     def __init__(self, stock, portfolio):
         super().__init__(stock, portfolio)
@@ -446,9 +446,8 @@ export function StrategyPanel({ watchlist, refresh, onRefresh, onRunCompleted, c
                     <div className="strategy-api-section">
                       <strong>Forbidden Python</strong>
                       <ul>
-                        <li>No <code>import</code> or <code>from ... import</code></li>
                         <li>No <code>global</code>, <code>nonlocal</code></li>
-                        <li>No <code>eval</code>, <code>exec</code>, <code>open</code>, <code>input</code>, <code>getattr</code>, <code>setattr</code>, <code>type</code>, <code>isinstance</code>, <code>hasattr</code>, <code>repr</code>, <code>format</code>, <code>bytes</code>, <code>bytearray</code></li>
+                        <li>No <code>eval</code>, <code>exec</code>, <code>open</code>, <code>input</code>, <code>getattr</code>, <code>setattr</code>, <code>type</code>, <code>isinstance</code>, <code>repr</code>, <code>format</code>, <code>bytes</code>, <code>bytearray</code></li>
                       </ul>
                     </div>
                     <div className="strategy-api-section">
