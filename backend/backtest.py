@@ -32,7 +32,6 @@ _FORBIDDEN_NAMES = {
     "__bases__",
     "isinstance",
     "issubclass",
-    "hasattr",
     "repr",
     "format",
     "bytes",
