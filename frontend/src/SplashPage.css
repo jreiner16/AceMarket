@@ -1,24 +1,498 @@
-/* SplashPage -- styles for landing page */
+/* SplashPage — landing (modern layout, utilitarian palette) */
 .splash {
+  box-sizing: border-box;
+}
+
+.splash-auth-page {
   min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-dark);
   padding: 24px;
+  background: var(--bg-dark);
 }
 
+.splash-landing-page {
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  background:
+    linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-dark) 28%, var(--bg-dark) 100%);
+}
+
+/* ——— Top nav ——— */
+.splash-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(220, 220, 220, 0.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.splash-nav-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.splash-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.splash-nav-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.splash-nav-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.splash-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.splash-nav-link {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.splash-nav-link:hover {
+  color: var(--text);
+}
+
+.splash-nav-cta {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.splash-nav-cta:hover {
+  background: var(--btn-bg-hover);
+}
+
+.splash-nav-link:focus,
+.splash-nav-cta:focus {
+  outline: 1px dotted #000;
+  outline-offset: 2px;
+}
+
+/* ——— Main column ——— */
+.splash-landing-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+  width: 100%;
+}
+
+/* ——— Hero ——— */
+.splash-hero {
+  margin-bottom: 36px;
+}
+
+.splash-hero-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 28px;
+  align-items: center;
+}
+
+@media (min-width: 880px) {
+  .splash-hero-split {
+    grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.95fr);
+    gap: 40px;
+    align-items: stretch;
+  }
+}
+
+.splash-hero-copy {
+  border-left: 3px solid var(--accent-green);
+  padding-left: 20px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  min-width: 0;
+}
+
+.splash-hero-visual {
+  min-width: 0;
+}
+
+/* ——— Inline showcase (images + copy, no separate “screenshots” block) ——— */
+.splash-showcase {
+  margin-bottom: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.splash-showcase-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  align-items: center;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+}
+
+.splash-showcase-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+@media (min-width: 768px) {
+  .splash-showcase-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    padding: 28px 0;
+  }
+
+  .splash-showcase-row--flip .splash-showcase-copy {
+    order: 2;
+  }
+
+  .splash-showcase-row--flip .splash-showcase-figure {
+    order: 1;
+  }
+}
+
+.splash-showcase-label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.splash-showcase-copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-width: 48ch;
+}
+
+.splash-showcase-figure {
+  min-width: 0;
+}
+
+.splash-hero-kicker {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.splash-hero-copy h1 {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text);
+  letter-spacing: -0.03em;
+}
+
+.splash-hero-tagline {
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  font-weight: 500;
+  max-width: 48ch;
+}
+
+.splash-hero-lede {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 52ch;
+}
+
+.splash-hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.splash-pill {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 6px 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.splash-hero-cta-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+/* ——— Content panels ——— */
+.splash-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 24px 22px 28px;
+  margin-bottom: 28px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.04);
+}
+
+.splash-panel-head {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.splash-section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.splash-section-intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+
+/* ——— Tool grid ——— */
+.splash-tool-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+@media (min-width: 900px) {
+  .splash-tool-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 14px;
+  }
+
+  .splash-tool-card-wide {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .splash-tool-card-paper {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .splash-tool-card-strategy {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .splash-tool-card-tall {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+    align-self: stretch;
+    min-height: 0;
+  }
+
+  .splash-tool-card-reports {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .splash-tool-card-cloud {
+    grid-column: 3;
+    grid-row: 3;
+  }
+}
+
+.splash-tool-card {
+  display: flex;
+  gap: 12px;
+  padding: 16px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.splash-tool-card-tall {
+  flex-direction: row;
+}
+
+.splash-tool-card-tall .splash-tool-card-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.splash-tool-card:hover {
+  border-color: #909090;
+  background: var(--bg-panel);
+}
+
+.splash-tool-card-num {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-green);
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+.splash-tool-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.splash-tool-card-body strong {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.splash-tool-card-body span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.splash-shot {
+  margin: 0;
+}
+
+.splash-shot-frame {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.splash-shot-frame--empty {
+  min-height: 200px;
+  background: var(--bg-dark);
+}
+
+.splash-shot--hero .splash-shot-frame,
+.splash-shot--hero .splash-shot-frame--empty {
+  min-height: 220px;
+}
+
+@media (min-width: 880px) {
+
+  .splash-shot--hero .splash-shot-frame,
+  .splash-shot--hero .splash-shot-frame--empty {
+    min-height: 280px;
+  }
+}
+
+.splash-shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.splash-btn {
+  padding: 11px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+  box-shadow: none;
+  border: 1px solid var(--btn-border);
+}
+
+.splash-btn:focus {
+  outline: 1px dotted #000;
+  outline-offset: 2px;
+}
+
+.splash-btn-primary {
+  background: var(--btn-bg);
+  color: var(--text);
+}
+
+.splash-btn-primary:hover {
+  background: var(--btn-bg-hover);
+}
+
+.splash-btn-secondary {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.splash-btn-secondary:hover {
+  background: var(--btn-bg-hover);
+}
+
+.splash-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.splash-btn-ghost:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+/* ——— Auth card ——— */
 .splash-card {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   padding: 24px;
   max-width: 400px;
   width: 100%;
-  box-shadow: none;
-}
-
-.splash-card.splash-landing {
-  max-width: 440px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.06);
 }
 
 .splash-card.splash-auth {
@@ -44,103 +518,6 @@
   background: var(--btn-bg-hover);
 }
 
-/* Landing */
-.splash-hero {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.splash-hero-logo {
-  width: 56px;
-  height: 56px;
-  max-width: 56px;
-  max-height: 56px;
-  margin-bottom: 16px;
-  object-fit: contain;
-}
-
-.splash-hero h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: -0.02em;
-}
-
-.splash-hero-tagline {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.splash-features {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 32px;
-}
-
-.splash-features-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.splash-feature-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.4;
-}
-
-.splash-feature-list li {
-  margin-bottom: 6px;
-}
-
-.splash-cta {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.splash-btn {
-  width: 100%;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.splash-btn:focus {
-  outline: 1px dotted #000;
-  outline-offset: 1px;
-}
-
-.splash-btn-primary {
-  background: var(--btn-bg);
-  color: var(--text);
-  border: 1px solid var(--btn-border);
-}
-
-.splash-btn-primary:hover {
-  background: var(--btn-bg-hover);
-}
-
-.splash-btn-secondary {
-  background: var(--btn-bg);
-  border: 1px solid var(--btn-border);
-  color: var(--text);
-}
-
-.splash-btn-secondary:hover {
-  background: var(--btn-bg-hover);
-}
-
-/* Auth form */
 .splash-auth .splash-logo {
   text-align: center;
   margin-bottom: 16px;
@@ -149,8 +526,6 @@
 .splash-auth .splash-logo img {
   width: 36px;
   height: 36px;
-  max-width: 36px;
-  max-height: 36px;
   margin-bottom: 6px;
   object-fit: contain;
 }
