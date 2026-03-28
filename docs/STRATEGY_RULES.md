@@ -41,9 +41,19 @@ Strategy code must define a class that inherits from `Strategy`. Only use data a
 
 No `stock.df`, `stock.df.iloc`, `.loc`, `.iat`, `.at`, `.values`, `.index`. Use `stock.price(index)`, `stock.get_candle(index)`, `stock.sma(14)[index]` instead.
 
+## Imports (whitelisted)
+
+You may use **absolute** `import` / `from … import` only for these **top-level** stdlib modules (submodules of an allowed root are OK, e.g. `collections.abc`):
+
+`abc`, `array`, `bisect`, `collections`, `contextlib`, `copy`, `decimal`, `enum`, `fractions`, `functools`, `heapq`, `itertools`, `math`, `numbers`, `operator`, `random`, `statistics`, `string`, `typing`
+
+- **No relative imports** (`from .` …).
+- **No** calling `__import__` by name (blocked like other dangerous builtins).
+- Anything else (e.g. `os`, `sys`, `numpy`, `importlib`) is rejected at validation or import time.
+
 ## Forbidden Python
 
-No `import`, `global`, `nonlocal`, `eval`, `exec`, `open`, `input`, `getattr`, `setattr`, `type`, `isinstance`, `hasattr`, `repr`, `format`, `bytes`, `bytearray`.
+No `global`, `nonlocal`, `eval`, `exec`, `open`, `input`, `getattr`, `setattr`, `type`, `isinstance`, `hasattr`, `repr`, `format`, `bytes`, `bytearray`.
 
 ## Limits
 
