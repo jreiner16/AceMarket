@@ -17,6 +17,9 @@ ENV/
 # OSX
 .DS_Store
 
+# dependencies
+node_modules/
+
 # frontend dependencies, output and environment
 frontend/node_modules/
 frontend/dist/

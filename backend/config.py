@@ -62,16 +62,21 @@ elif _explicit_disable or not _has_firebase_creds:
 else:
     DISABLE_AUTH = False
 
-# Database: use PostgreSQL when DATABASE_URL is set (production, e.g. Render);
-# otherwise use SQLite (local dev). SQLite on Render is ephemeral — data is lost on restart.
-_raw_db_url = os.environ.get("DATABASE_URL", "").strip()
-# Render uses postgres://; psycopg2 expects postgresql://
-DATABASE_URL = _raw_db_url.replace("postgres://", "postgresql://", 1) if _raw_db_url.startswith("postgres://") else _raw_db_url
-DB_PATH = os.environ.get("ACEMARKET_DB", "acemarket.db")
+# Database: Convex deployment URL and deploy key (required in all environments).
+# Get these from the Convex dashboard after running `npx convex deploy`.
+CONVEX_URL = os.environ.get("CONVEX_URL", "").strip()
+CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", "").strip()
 
-# Force auth on when production DB is used (prevent accidental bypass)
-if DATABASE_URL and DISABLE_AUTH:
-    logging.warning("DATABASE_URL is set; disabling auth bypass for safety.")
+if not CONVEX_URL or not CONVEX_DEPLOY_KEY:
+    logging.warning(
+        "CONVEX_URL or CONVEX_DEPLOY_KEY is not set. "
+        "Set both in .env (dev) or environment variables (production). "
+        "Get them from https://dashboard.convex.dev after deploying."
+    )
+
+# Force auth on when production Convex key is set (prevent accidental bypass)
+if CONVEX_DEPLOY_KEY and DISABLE_AUTH:
+    logging.warning("CONVEX_DEPLOY_KEY is set; disabling auth bypass for safety.")
     DISABLE_AUTH = False
 
 # P0: Refuse to run in production with DISABLE_AUTH explicitly set

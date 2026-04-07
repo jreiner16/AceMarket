@@ -464,7 +464,7 @@ class StrategyUpdate(BaseModel):
 
 
 class RunStrategyRequest(BaseModel):
-    strategy_id: int
+    strategy_id: str
     symbols: list[str]
     start_date: str
     end_date: str
@@ -472,7 +472,7 @@ class RunStrategyRequest(BaseModel):
 
 
 class MonteCarloRequest(BaseModel):
-    strategy_id: int
+    strategy_id: str
     symbol: str
     n_sims: int = 100
     horizon: int = 252  # trading days to simulate
@@ -781,7 +781,7 @@ def create_strategy_endpoint(req: StrategyCreate, user_id: str = Depends(verify_
 
 
 @app.put("/api/v1/strategies/{strategy_id}")
-def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str = Depends(verify_token)):
+def update_strategy_endpoint(strategy_id: str, upd: StrategyUpdate, user_id: str = Depends(verify_token)):
     strat = db.get_strategy(user_id, strategy_id)
     if not strat:
         raise HTTPException(status_code=404, detail="Strategy not found")
@@ -812,7 +812,7 @@ def update_strategy_endpoint(strategy_id: int, upd: StrategyUpdate, user_id: str
 
 
 @app.delete("/api/v1/strategies/{strategy_id}")
-def delete_strategy_endpoint(strategy_id: int, user_id: str = Depends(verify_token)):
+def delete_strategy_endpoint(strategy_id: str, user_id: str = Depends(verify_token)):
     if not db.delete_strategy(user_id, strategy_id):
         raise HTTPException(status_code=404, detail="Strategy not found")
     return {"ok": True}
