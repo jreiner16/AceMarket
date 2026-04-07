@@ -942,7 +942,7 @@ def _run_backtest_background(job_id: str, user_id: str, req: RunStrategyRequest)
             "metrics": metrics,
         })
         run_id = db.save_run(user_id, run_data)
-        result = {"ok": True, "results": results, "run_id": int(run_id)}
+        result = {"ok": True, "results": results, "run_id": run_id}
         try:
             _backtest_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result)}
         except Exception as serr:
@@ -1051,7 +1051,7 @@ def _run_montecarlo_background(job_id: str, user_id: str, req: MonteCarloRequest
         })
         run_id = db.save_run(user_id, run_data)
         logger.info("Monte Carlo run saved: id=%s user=%s symbol=%s", run_id, user_id, symbol)
-        result_payload = {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": int(run_id), **result}
+        result_payload = {"ok": True, "strategy": strat["name"], "symbol": symbol, "run_id": run_id, **result}
         try:
             _montecarlo_jobs[job_id] = {"status": "done", "user_id": user_id, "result": _to_native(result_payload)}
         except Exception as serr:
