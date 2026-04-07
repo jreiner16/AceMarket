@@ -1,11 +1,6 @@
-# AceMarket Render Blueprint — deploy backend + PostgreSQL
+# AceMarket Render Blueprint — deploy backend (Convex handles storage)
 # Dashboard → New → Blueprint → connect this repo
-# Set CORS_ORIGINS, FIREBASE_CREDENTIALS_JSON, ENVIRONMENT in the web service env vars
-
-databases:
-  - name: acemarket-db
-    plan: free
-    region: oregon
+# Set CORS_ORIGINS, FIREBASE_CREDENTIALS_JSON, CONVEX_URL, CONVEX_DEPLOY_KEY in env vars
 
 services:
   - type: web
@@ -16,10 +11,10 @@ services:
     region: oregon
     plan: free
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: acemarket-db
-          property: connectionString
+      - key: CONVEX_URL
+        sync: false
+      - key: CONVEX_DEPLOY_KEY
+        sync: false
       - key: ENVIRONMENT
         value: production
       - key: CORS_ORIGINS
