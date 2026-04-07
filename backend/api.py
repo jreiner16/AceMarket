@@ -1127,7 +1127,7 @@ def _reconstruct_equity_curve_from_trades(trade_log: list, initial_cash: float, 
 
 
 @app.get("/api/v1/runs/{run_id}")
-def get_run_endpoint(run_id: int, user_id: str = Depends(verify_token)):
+def get_run_endpoint(run_id: str, user_id: str = Depends(verify_token)):
     r = db.get_run(user_id, run_id)
     if not r:
         raise HTTPException(status_code=404, detail="Run not found")
