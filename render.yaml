@@ -1,6 +1,6 @@
-# AceMarket Render Blueprint — deploy backend (Convex handles storage)
+# AceMarket Render Blueprint — deploy backend (Supabase handles storage)
 # Dashboard → New → Blueprint → connect this repo
-# Set CORS_ORIGINS, FIREBASE_CREDENTIALS_JSON, CONVEX_URL, CONVEX_DEPLOY_KEY in env vars
+# Set DATABASE_URL, CORS_ORIGINS, FIREBASE_CREDENTIALS_JSON in env vars
 
 services:
   - type: web
@@ -11,9 +11,7 @@ services:
     region: oregon
     plan: free
     envVars:
-      - key: CONVEX_URL
-        sync: false
-      - key: CONVEX_DEPLOY_KEY
+      - key: DATABASE_URL
         sync: false
       - key: ENVIRONMENT
         value: production

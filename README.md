@@ -23,7 +23,7 @@ Then open http://localhost:5173. Copy `frontend/.env.example` to `frontend/.env`
 ```bash
 # Backend (from project root)
 cd backend && pip install -r requirements.txt -r requirements-dev.txt
-DISABLE_AUTH=1 ACEMARKET_DB=:memory: pytest tests/ -v
+DISABLE_AUTH=1 pytest tests/ -v
 
 # Frontend
 cd frontend && npm ci && npm run lint && npm run test:run && npm run build
@@ -40,11 +40,11 @@ cd frontend && npm ci && npm run lint && npm run test:run && npm run build
 
 Deploy frontend and backend separately. Copy `backend/.env.example` → `backend/.env` and `frontend/.env.example` → `frontend/.env` (or set env vars in your host); see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/SECURITY.md](docs/SECURITY.md).
 
-**Backend** — Set `DATABASE_URL` (PostgreSQL in production), `CORS_ORIGINS`, `ENVIRONMENT=production`, and Firebase Admin credentials. Run with uvicorn or Docker.
+**Backend (Render)** — Set `DATABASE_URL` (Supabase session pooler URI), `CORS_ORIGINS`, `ENVIRONMENT=production`, and `FIREBASE_CREDENTIALS_JSON`. Run with Docker.
 
-**Frontend** — Set `VITE_API_BASE` and `VITE_FIREBASE_*` in `.env`, then `npm run build`. Deploy the `dist/` output (e.g. Firebase Hosting).
+**Database (Supabase)** — Create a free project, grab the session pooler connection string from the Connect page, paste it as `DATABASE_URL`.
 
-**Firebase** — Create a project, enable Auth, add your frontend URL to Authorized domains, and configure the Admin SDK on the backend. 
+**Frontend (Firebase Hosting)** — Set `VITE_API_BASE` and `VITE_FIREBASE_*` in `.env`, then `npm run build` and `firebase deploy`.
 
 ## Limitations
 

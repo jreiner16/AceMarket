@@ -1,62 +1,64 @@
 # AceMarket Deployment Guide
 
-## Quick Start: Render Blueprint
+## Architecture
 
-If deploying to Render, you can use the included `render.yaml`:
+- **Backend** — Python/FastAPI, deployed on [Render](https://render.com) via Docker
+- **Database** — PostgreSQL on [Supabase](https://supabase.com) (free tier)
+- **Frontend** — React/Vite, deployed on Firebase Hosting
+- **Auth** — Firebase Authentication
+
+## Backend (Render)
 
 1. Push this repo to GitHub
-2. Render Dashboard → New → Blueprint
-3. Connect the repo
-4. Set `CORS_ORIGINS` and `FIREBASE_CREDENTIALS_JSON` when prompted (sync: false)
-5. Deploy
-
-The blueprint creates a PostgreSQL database and links `DATABASE_URL` automatically.
-
-## Persistent Storage (CRITICAL)
-
-**Your strategies, backtest/Monte Carlo runs, and positions are stored in a database.** Without persistent storage, all data is lost on every server restart.
-
-### Render: Use PostgreSQL
-
-Render's filesystem is **ephemeral**. SQLite files (`acemarket.db`) are wiped on every deploy and restart. You **must** use PostgreSQL for production.
-
-1. **Create a PostgreSQL database** in the Render dashboard:
-   - Dashboard → New → PostgreSQL
-   - Choose a name (e.g. `acemarket-db`)
-   - Select a region close to your web service
-   - Free tier is sufficient for development
-
-2. **Link the database to your web service**:
-   - Open your web service → Environment
-   - Add environment variable: `DATABASE_URL` → **From Database** → select your Postgres instance → `Internal Database URL`
-   - Use the **Internal** URL (not External) for lower latency
-
-3. **Deploy**. The backend automatically uses PostgreSQL when `DATABASE_URL` is set. Tables are created on first run.
-
-### Environment Variables Summary
+2. Render Dashboard → New → Web Service → connect the repo
+3. Set runtime to **Docker**, dockerfile path `./backend/Dockerfile`, context `./backend`
+4. Set these environment variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | **Yes** (production) | PostgreSQL connection string. Render provides this when you link a Postgres DB. |
-| `ACEMARKET_DB` | No (dev only) | SQLite path when `DATABASE_URL` is not set. Default: `acemarket.db` |
-| `CORS_ORIGINS` | Yes | Comma-separated frontend origins (e.g. `https://acemarketengine.web.app`) |
-| `ENVIRONMENT` | Yes | `production` for live |
-| `FIREBASE_CREDENTIALS_JSON` or `GOOGLE_APPLICATION_CREDENTIALS` | Yes | Firebase Admin SDK for auth |
+| `DATABASE_URL` | **Yes** | Supabase session pooler URI (see below) |
+| `CORS_ORIGINS` | **Yes** | Comma-separated frontend origins, e.g. `https://acemarketengine.web.app` |
+| `ENVIRONMENT` | **Yes** | Set to `production` |
+| `FIREBASE_CREDENTIALS_JSON` | **Yes** | Firebase Admin SDK service account JSON (paste the whole JSON as a string) |
 
-### Local Development
+5. Deploy. Tables are created automatically on first run.
 
-Without `DATABASE_URL`, the backend uses SQLite. Data persists in `acemarket.db` in the backend directory.
+## Database (Supabase)
+
+1. Create a free project at [supabase.com](https://supabase.com)
+2. From your project page click **Connect** → **Session pooler** tab
+3. Copy the URI (format: `postgresql://postgres.xxxxx:password@aws-1-region.pooler.supabase.com:5432/postgres`)
+4. Paste it as `DATABASE_URL` in your Render environment variables
+
+Use the **Session pooler** (port 5432), not the direct connection or transaction pooler.
+
+## Frontend (Firebase Hosting)
+
+1. Copy `frontend/.env.example` → `frontend/.env` and fill in your Firebase config and `VITE_API_BASE`
+2. `cd frontend && npm ci && npm run build`
+3. `firebase deploy`
+
+## Local Development
 
 ```bash
-cd backend && uvicorn api:app
+# Copy and fill in your credentials
+cp backend/.env.example backend/.env
+
+# Terminal 1 — backend (DISABLE_AUTH=1 skips Firebase for local dev)
+cd backend && DISABLE_AUTH=1 uvicorn api:app --reload
+
+# Terminal 2 — frontend
+cd frontend && npm run dev
 ```
 
-### Verifying Persistence
+`DATABASE_URL` must be set in `backend/.env` even for local dev — the backend always uses PostgreSQL.
 
-After deployment with Postgres:
+## Verifying Persistence
+
+After deploying:
 
 1. Create a strategy, run a backtest, place an order
 2. Refresh the page — data should remain
 3. Trigger a redeploy — data should still be there
 
-If data disappears on refresh or restart, `DATABASE_URL` is not set or the Postgres database is not linked correctly.
+If data disappears, check that `DATABASE_URL` is correctly set in Render.

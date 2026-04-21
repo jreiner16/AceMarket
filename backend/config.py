@@ -62,22 +62,14 @@ elif _explicit_disable or not _has_firebase_creds:
 else:
     DISABLE_AUTH = False
 
-# Database: Convex deployment URL and deploy key (required in all environments).
-# Get these from the Convex dashboard after running `npx convex deploy`.
-CONVEX_URL = os.environ.get("CONVEX_URL", "").strip()
-CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", "").strip()
+# Database: PostgreSQL connection string (Supabase or any Postgres host).
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-if not CONVEX_URL or not CONVEX_DEPLOY_KEY:
+if not DATABASE_URL:
     logging.warning(
-        "CONVEX_URL or CONVEX_DEPLOY_KEY is not set. "
-        "Set both in .env (dev) or environment variables (production). "
-        "Get them from https://dashboard.convex.dev after deploying."
+        "DATABASE_URL is not set. "
+        "Set it in .env (dev) or environment variables (production)."
     )
-
-# Force auth on when production Convex key is set (prevent accidental bypass)
-if CONVEX_DEPLOY_KEY and DISABLE_AUTH:
-    logging.warning("CONVEX_DEPLOY_KEY is set; disabling auth bypass for safety.")
-    DISABLE_AUTH = False
 
 # P0: Refuse to run in production with DISABLE_AUTH explicitly set
 if IS_PRODUCTION and _explicit_disable:
