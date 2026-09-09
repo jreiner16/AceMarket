@@ -1,3 +1,5 @@
+! ## DEPRECATED! CHECK OUT DELTAVANTAGE. 
+
 # AceMarket
 
 A full-stack paper trading platform with a Python strategy IDE, backtester, and Monte Carlo simulator.
